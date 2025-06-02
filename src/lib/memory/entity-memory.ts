@@ -321,6 +321,7 @@ export class UnifiedEntityMemory {
     const now = Date.now();
     const oneHourAgo = now - (60 * 60 * 1000);
 
+    // First pass: remove low-confidence old entities
     for (const [id, entity] of this.entities) {
       // Remove entities with low confidence that haven't been mentioned recently
       if (entity.confidence < this.cleanupThreshold && entity.lastMentioned < oneHourAgo) {
@@ -328,14 +329,25 @@ export class UnifiedEntityMemory {
       }
     }
 
-    // Remove oldest entities if still over limit
+    // Second pass: if still over limit, remove oldest entities (but preserve high-confidence ones)
     if (this.entities.size - entitiesToRemove.length > this.maxEntities) {
-      const sortedEntities = [...this.entities.entries()]
-        .sort(([,a], [,b]) => a.lastMentioned - b.lastMentioned);
+      const remainingEntities = [...this.entities.entries()]
+        .filter(([id]) => !entitiesToRemove.includes(id))
+        .sort(([,a], [,b]) => {
+          // Sort by confidence (desc) then by last mentioned (asc)
+          if (Math.abs(a.confidence - b.confidence) > 0.1) {
+            return a.confidence - b.confidence; // Lower confidence first
+          }
+          return a.lastMentioned - b.lastMentioned; // Older first
+        });
       
       const additionalToRemove = this.entities.size - entitiesToRemove.length - this.maxEntities;
-      for (let i = 0; i < additionalToRemove; i++) {
-        entitiesToRemove.push(sortedEntities[i][0]);
+      for (let i = 0; i < additionalToRemove && i < remainingEntities.length; i++) {
+        const [id, entity] = remainingEntities[i];
+        // Only remove if confidence is not too high
+        if (entity.confidence < 0.8) {
+          entitiesToRemove.push(id);
+        }
       }
     }
 

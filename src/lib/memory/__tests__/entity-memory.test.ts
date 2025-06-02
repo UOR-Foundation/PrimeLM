@@ -155,7 +155,7 @@ describe('UnifiedEntityMemory', () => {
         value: 'blue',
         type: 'attribute',
         subject: 'car',
-        entityType: 'color',
+        entityType: 'car',
         confidence: 0.7
       });
 

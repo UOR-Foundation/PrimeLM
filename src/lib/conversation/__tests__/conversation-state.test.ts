@@ -269,27 +269,21 @@ describe('ConversationStateManager', () => {
   describe('cleanup and maintenance', () => {
     it('should perform periodic cleanup', () => {
       const config: Partial<ConversationConfig> = {
-        cleanupInterval: 100, // 100ms for testing
-        memoryRetentionHours: 0.001 // Very short retention for testing
+        cleanupInterval: 100,
+        memoryRetentionHours: 0.001
       };
       const manager = new ConversationStateManager(config);
 
-      // Add a turn
-      manager.addTurn({ text: 'Old message' });
-
-      // Wait for cleanup interval
-      return new Promise(resolve => {
-        setTimeout(() => {
-          // Add another turn to trigger cleanup check
-          manager.addTurn({ text: 'New message' });
-          
-          const history = manager.getRecentHistory(10);
-          // The old message should be cleaned up due to short retention
-          expect(history.length).toBe(1);
-          expect(history[0].text).toBe('New message');
-          resolve(undefined);
-        }, 150);
-      });
+      const oldTurn = manager.addTurn({ text: 'Old message' });
+      oldTurn.timestamp = Date.now() - (2 * 60 * 60 * 1000);
+      
+      (manager as any).forceCleanup();
+      
+      manager.addTurn({ text: 'New message' });
+      
+      const history = manager.getRecentHistory(10);
+      expect(history.length).toBe(1);
+      expect(history[0].text).toBe('New message');
     });
   });
 
@@ -435,3 +429,197 @@ describe('ConversationStateManager', () => {
   describe('pronoun resolution edge cases', () => {
     it('should handle male pronoun entities', () => {
       conversationManager.addTurn({
+        speaker: 'human',
+        text: 'What is my husband\'s name?',
+        intent: 'ENTITY_QUERY',
+        entities: { entity_0: 'husband' }
+      });
+
+      conversationManager.addTurn({
+        speaker: 'human',
+        text: 'His name is John',
+        intent: 'ENTITY_INTRODUCTION',
+        entities: { entity_0: 'his', entity_1: 'name', entity_2: 'John' }
+      });
+
+      const husbandName = conversationManager.getEntityName('husband');
+      expect(husbandName).toBe('John');
+    });
+
+    it('should handle neutral pronoun entities', () => {
+      conversationManager.addTurn({
+        speaker: 'human',
+        text: 'What is my cat\'s name?',
+        intent: 'ENTITY_QUERY',
+        entities: { entity_0: 'cat' }
+      });
+
+      conversationManager.addTurn({
+        speaker: 'human',
+        text: 'Its name is Fluffy',
+        intent: 'ENTITY_INTRODUCTION',
+        entities: { entity_0: 'its', entity_1: 'name', entity_2: 'Fluffy' }
+      });
+
+      const catName = conversationManager.getEntityName('cat');
+      expect(catName).toBe('Fluffy');
+    });
+
+    it('should handle pronoun resolution when no context exists', () => {
+      conversationManager.addTurn({
+        speaker: 'human',
+        text: 'Her name is Sarah',
+        intent: 'ENTITY_INTRODUCTION',
+        entities: { entity_0: 'her', entity_1: 'name', entity_2: 'Sarah' }
+      });
+
+      // Should not crash, but also shouldn't create invalid relationships
+      const entities = conversationManager.queryEntities({});
+      const sarahEntity = entities.find(e => e.value === 'Sarah');
+      expect(sarahEntity).toBeDefined();
+    });
+  });
+
+  describe('complex conversation flows', () => {
+    it('should handle multi-turn entity establishment', () => {
+      // User introduces themselves
+      conversationManager.addTurn({
+        text: 'My name is Alice',
+        intent: 'IDENTITY_INTRODUCTION',
+        entities: { entity_0: 'Alice' }
+      });
+
+      // User introduces pet
+      conversationManager.addTurn({
+        text: 'I have a dog',
+        intent: 'ENTITY_INTRODUCTION',
+        entities: { entity_0: 'dog' }
+      });
+
+      // User provides pet name
+      conversationManager.addTurn({
+        text: 'My dog\'s name is Rex',
+        intent: 'ENTITY_INTRODUCTION',
+        entities: { entity_0: 'dog', entity_1: 'Rex' }
+      });
+
+      expect(conversationManager.getUserName()).toBe('Alice');
+      expect(conversationManager.getEntityName('dog')).toBe('Rex');
+    });
+
+    it('should track conversation flow through different topics', () => {
+      // Start with identity
+      conversationManager.addTurn({
+        text: 'My name is Bob',
+        intent: 'IDENTITY_INTRODUCTION',
+        entities: { entity_0: 'Bob' }
+      });
+
+      // Move to pets
+      conversationManager.addTurn({
+        text: 'I have a cat named Whiskers',
+        intent: 'ENTITY_INTRODUCTION',
+        entities: { entity_0: 'cat', entity_1: 'Whiskers' }
+      });
+
+      // Move to help request
+      conversationManager.addTurn({
+        text: 'Can you help me with something?',
+        intent: 'HELP_REQUEST'
+      });
+
+      const context = conversationManager.getConversationContext();
+      expect(context.conversationGoals).toContain('provide_assistance');
+      expect(context.conversationGoals).toContain('learn_about_user');
+    });
+  });
+
+  describe('performance and limits', () => {
+    it('should handle large numbers of entities efficiently', () => {
+      const startTime = Date.now();
+      
+      // Add many entity relationships
+      for (let i = 0; i < 100; i++) {
+        conversationManager.addTurn({
+          text: `Entity ${i} is named Item${i}`,
+          intent: 'ENTITY_INTRODUCTION',
+          entities: { entity_0: `entity${i}`, entity_1: `Item${i}` }
+        });
+      }
+      
+      const endTime = Date.now();
+      const processingTime = endTime - startTime;
+      
+      // Should process 100 entities in reasonable time (less than 1 second)
+      expect(processingTime).toBeLessThan(1000);
+      
+      // Should be able to retrieve entities
+      expect(conversationManager.getEntityName('entity50')).toBe('Item50');
+    });
+
+    it('should maintain performance with long conversation history', () => {
+      const startTime = Date.now();
+      
+      // Add many conversation turns
+      for (let i = 0; i < 200; i++) {
+        conversationManager.addTurn({
+          text: `Message number ${i} with some content`,
+          intent: 'GENERAL_CONVERSATION'
+        });
+      }
+      
+      const endTime = Date.now();
+      const processingTime = endTime - startTime;
+      
+      // Should handle large history efficiently
+      expect(processingTime).toBeLessThan(2000);
+      
+      // Should maintain history limits
+      const history = conversationManager.getRecentHistory(100);
+      expect(history.length).toBeLessThanOrEqual(50); // Default max history
+    });
+  });
+
+  describe('error handling', () => {
+    it('should handle malformed entity data gracefully', () => {
+      expect(() => {
+        conversationManager.addTurn({
+          text: 'Test message',
+          entities: { entity_0: { nested: 'object' } } as any
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle extremely long entity values', () => {
+      const longEntityValue = 'a'.repeat(10000);
+      
+      expect(() => {
+        conversationManager.addTurn({
+          text: 'Test with long entity',
+          entities: { entity_0: longEntityValue }
+        });
+      }).not.toThrow();
+    });
+
+    it('should handle concurrent turn additions', async () => {
+      const promises = [];
+      
+      // Add multiple turns concurrently
+      for (let i = 0; i < 10; i++) {
+        promises.push(
+          Promise.resolve().then(() => 
+            conversationManager.addTurn({
+              text: `Concurrent message ${i}`,
+              intent: 'GENERAL_CONVERSATION'
+            })
+          )
+        );
+      }
+      
+      await Promise.all(promises);
+      
+      const stats = conversationManager.getStats();
+      expect(stats.conversation.totalTurns).toBe(10);
+    });
+  });
+});

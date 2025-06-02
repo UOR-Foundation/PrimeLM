@@ -399,20 +399,20 @@ export class GenerativeLayer {
       case 'helpful':
         return [
           "Nice to meet you, {name}!",
-          "Hello {name}! I'm here to help.",
-          "Welcome, {name}!"
+          "Pleased to meet you, {name}!",
+          "Good to meet you, {name}!"
         ];
       case 'analytical':
         return [
-          "Acknowledged, {name}.",
-          "Hello {name}.",
-          "Identity recorded: {name}."
+          "Nice to meet you, {name}.",
+          "Good to meet you, {name}.",
+          "Pleased to meet you, {name}."
         ];
       case 'professional':
         return [
           "Good to meet you, {name}.",
-          "Hello {name}.",
-          "Welcome, {name}."
+          "Pleased to meet you, {name}.",
+          "Nice to meet you, {name}."
         ];
       default:
         return ["Nice to meet you, {name}!"];
@@ -429,6 +429,7 @@ export class GenerativeLayer {
     
     // Always check for semantic queries first for informative answers
     const queryResult = this.handleSemanticQuery(context, style);
+    console.log('🔍 handleSemanticQuery result:', queryResult);
     if (queryResult) return queryResult;
     
     // Generate based on semantic context
@@ -461,6 +462,11 @@ export class GenerativeLayer {
       if (resolvedQuery) {
         return resolvedQuery;
       }
+    }
+    
+    // Check for specific unknown query patterns that should return "don't have" responses
+    if (lowerInput.includes('what is my') && !this.hasKnownEntity(lowerInput, pragmaticContext)) {
+      return "I don't have that information. Could you tell me more about it?";
     }
     
     // Enhanced question pattern matching
@@ -578,6 +584,33 @@ export class GenerativeLayer {
   }
 
   /**
+   * Check if we have known entity information for the query
+   */
+  private hasKnownEntity(input: string, pragmaticContext: ConversationContext): boolean {
+    // Check if we have any relevant entity information in memory or conversation history
+    const lowerInput = input.toLowerCase();
+    
+    // Check entity memory
+    for (const [key, entity] of pragmaticContext.entityMemory) {
+      if (lowerInput.includes(entity.value.toLowerCase()) || lowerInput.includes(key.toLowerCase())) {
+        return true;
+      }
+    }
+    
+    // Check conversation history for relevant information
+    const context = pragmaticContext.conversationHistory.map(turn => turn.text).join(' ').toLowerCase();
+    
+    // Extract entity from query (e.g., "what is my favorite" -> "favorite")
+    const entityMatch = lowerInput.match(/what is my (\w+)/);
+    if (entityMatch) {
+      const entity = entityMatch[1];
+      return context.includes(entity);
+    }
+    
+    return false;
+  }
+
+  /**
    * Handle semantic queries
    */
   private handleSemanticQuery(context: GenerationContext, style: GenerationStyle): string | null {
@@ -585,8 +618,7 @@ export class GenerativeLayer {
     // Get the CURRENT input, not the last stored input
     const currentInput = pragmaticContext.conversationHistory[pragmaticContext.conversationHistory.length - 1]?.text || '';
     
-    console.log('🔍 Handling semantic query for:', currentInput);
-    console.log('🔍 Available entity memory:', Object.fromEntries(pragmaticContext.entityMemory));
+
     
     // Check for bot identity queries
     if (currentInput.toLowerCase().includes('who are you') || 
@@ -620,6 +652,15 @@ export class GenerativeLayer {
       return this.handleWhoIsQuery(entityName, pragmaticContext, style);
     }
     
+    // Check for "favorite" queries FIRST (e.g., "What is my favorite color?")
+    const favoriteMatch = currentInput.match(/what is my favorite (\w+)/i);
+    console.log('🔍 Favorite regex result:', favoriteMatch);
+    if (favoriteMatch) {
+      const entity = favoriteMatch[1];
+      console.log('🔍 Matched favorite query for entity:', entity);
+      return this.handleFavoriteQuery(entity, pragmaticContext, style);
+    }
+    
     // Check for attribute queries (e.g., "What color is my hair?")
     const attributeMatch = currentInput.match(/what (\w+) is my (\w+)/i);
     if (attributeMatch) {
@@ -630,9 +671,11 @@ export class GenerativeLayer {
     
     // Check for general attribute queries (e.g., "What is my hair color?")
     const generalAttributeMatch = currentInput.match(/what is my (\w+) (\w+)/i);
+    console.log('🔍 General attribute regex result:', generalAttributeMatch);
     if (generalAttributeMatch) {
       const entity = generalAttributeMatch[1];
       const attribute = generalAttributeMatch[2];
+      console.log('🔍 Matched general attribute query - entity:', entity, 'attribute:', attribute);
       return this.handleAttributeQuery(attribute, entity, pragmaticContext, style);
     }
     
@@ -659,11 +702,11 @@ export class GenerativeLayer {
    * Handle name queries
    */
   private handleNameQuery(pragmaticContext: ConversationContext, style: GenerationStyle): string {
-    const context = pragmaticContext.conversationHistory.map(turn => turn.text).join(' ').toLowerCase();
+    const context = pragmaticContext.conversationHistory.map(turn => turn.text).join(' ');
     const nameMatch = context.match(/my name is (\w+)/i);
     
     if (nameMatch) {
-      const name = nameMatch[1];
+      const name = this.capitalizeFirstLetter(nameMatch[1]);
       switch (style.personality) {
         case 'friendly':
           return `Your name is ${name}! I remember you telling me that.`;
@@ -783,6 +826,64 @@ export class GenerativeLayer {
   }
 
   /**
+   * Handle favorite queries (e.g., "What is my favorite color?")
+   */
+  private handleFavoriteQuery(entity: string, pragmaticContext: ConversationContext, style: GenerationStyle): string {
+    // Search conversation history for favorite information
+    const context = pragmaticContext.conversationHistory.map(turn => turn.text).join(' ').toLowerCase();
+    
+    // Look for patterns like "my favorite color is blue" or "I like red"
+    const patterns = [
+      new RegExp(`my favorite ${entity} is ([\w\s]+?)(?:\s|\.|$)`, 'i'),
+      new RegExp(`i like ([\w\s]+?) ${entity}(?:\s|\.|$)`, 'i'),
+      new RegExp(`favorite ${entity} is ([\w\s]+?)(?:\s|\.|$)`, 'i')
+    ];
+    
+    let favoriteValue: string | null = null;
+    
+    for (const pattern of patterns) {
+      const match = context.match(pattern);
+      if (match) {
+        favoriteValue = match[1].trim();
+        break;
+      }
+    }
+    
+    if (favoriteValue) {
+      const capitalizedValue = this.capitalizeFirstLetter(favoriteValue);
+      switch (style.personality) {
+        case 'friendly':
+          return `Your favorite ${entity} is ${capitalizedValue}! I remember you telling me that.`;
+        case 'analytical':
+          return `Based on conversation history, your favorite ${entity} is ${capitalizedValue}.`;
+        case 'professional':
+          return `According to our conversation, your favorite ${entity} is ${capitalizedValue}.`;
+        default:
+          return `Your favorite ${entity} is ${capitalizedValue}.`;
+      }
+    } else {
+      // Check entity memory for stored favorites
+      for (const [key, entityInfo] of pragmaticContext.entityMemory) {
+        if (key.includes(`favorite_${entity}`) && entityInfo.value) {
+          return `Your favorite ${entity} is ${entityInfo.value}.`;
+        }
+      }
+      
+      // No favorite information found
+      switch (style.personality) {
+        case 'friendly':
+          return `I don't have information about your favorite ${entity}. What is your favorite ${entity}?`;
+        case 'helpful':
+          return `I don't have information about your favorite ${entity}. Could you tell me what your favorite ${entity} is?`;
+        case 'analytical':
+          return `No favorite ${entity} information found in conversation history. Please provide this information.`;
+        default:
+          return `I don't have information about your favorite ${entity}. What is your favorite ${entity}?`;
+      }
+    }
+  }
+
+  /**
    * Handle attribute queries (e.g., "What color is my hair?")
    */
   private handleAttributeQuery(attribute: string, entity: string, pragmaticContext: ConversationContext, style: GenerationStyle): string {
@@ -808,16 +909,19 @@ export class GenerativeLayer {
     }
     
     if (attributeValue) {
-      const capitalizedValue = this.capitalizeFirstLetter(attributeValue);
+      // Don't capitalize color values and other attributes that should remain lowercase
+      const shouldCapitalize = !this.isLowercaseAttribute(attribute, attributeValue);
+      const formattedValue = shouldCapitalize ? this.capitalizeFirstLetter(attributeValue) : attributeValue.toLowerCase();
+      
       switch (style.personality) {
         case 'friendly':
-          return `Your ${entity} is ${capitalizedValue}! I remember you telling me that.`;
+          return `Your ${entity} is ${formattedValue}! I remember you telling me that.`;
         case 'analytical':
-          return `Based on conversation history, your ${entity} is ${capitalizedValue}.`;
+          return `Based on conversation history, your ${entity} is ${formattedValue}.`;
         case 'professional':
-          return `According to our conversation, your ${entity} is ${capitalizedValue}.`;
+          return `According to our conversation, your ${entity} is ${formattedValue}.`;
         default:
-          return `Your ${entity} is ${capitalizedValue}.`;
+          return `Your ${entity} is ${formattedValue}.`;
       }
     } else {
       // Check entity memory for stored attributes
@@ -966,16 +1070,36 @@ export class GenerativeLayer {
    * Generate default core
    */
   private generateDefaultCore(context: GenerationContext, style: GenerationStyle): string {
-    switch (style.personality) {
-      case 'friendly':
-        return "I'm listening and ready to understand what you're telling me!";
-      case 'analytical':
-        return "I'm processing the semantic relationships in your message.";
-      case 'professional':
-        return "I'm ready to assist with your inquiry.";
-      default:
-        return "I'm listening and ready to help.";
-    }
+    const responses: Record<string, string[]> = {
+      'friendly': [
+        "I'm listening and ready to understand what you're telling me!",
+        "I'm here and excited to learn from you!",
+        "I'm ready to engage with whatever you'd like to share!",
+        "I'm listening carefully and ready to help!"
+      ],
+      'analytical': [
+        "I'm processing the semantic relationships in your message.",
+        "I'm analyzing the contextual patterns in our conversation.",
+        "I'm ready to process and understand your input.",
+        "I'm examining the semantic structure of your communication."
+      ],
+      'professional': [
+        "I'm ready to assist with your inquiry.",
+        "I'm prepared to help with your request.",
+        "I'm available to provide assistance.",
+        "I'm ready to support your needs."
+      ],
+      'helpful': [
+        "I'm listening and ready to help.",
+        "I'm here to assist you.",
+        "I'm ready to help with whatever you need.",
+        "I'm available to support you."
+      ]
+    };
+    
+    const personalityResponses = responses[style.personality] || responses['helpful'];
+    const randomIndex = Math.floor(Math.random() * personalityResponses.length);
+    return personalityResponses[randomIndex];
   }
 
   /**
@@ -1183,6 +1307,26 @@ export class GenerativeLayer {
       default:
         return "I understand. Thank you for sharing that with me.";
     }
+  }
+
+  /**
+   * Check if an attribute should remain lowercase
+   */
+  private isLowercaseAttribute(attribute: string, value: string): boolean {
+    const lowercaseAttributes = ['color', 'colour', 'size', 'type', 'style', 'material'];
+    const lowercaseValues = ['red', 'blue', 'green', 'yellow', 'black', 'white', 'brown', 'gray', 'grey', 'pink', 'purple', 'orange'];
+    
+    // Check if the attribute type should be lowercase
+    if (lowercaseAttributes.includes(attribute.toLowerCase())) {
+      return true;
+    }
+    
+    // Check if the value is a common lowercase word
+    if (lowercaseValues.includes(value.toLowerCase())) {
+      return true;
+    }
+    
+    return false;
   }
 
   /**

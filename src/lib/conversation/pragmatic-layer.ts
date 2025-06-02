@@ -99,16 +99,31 @@ export class PragmaticLayer {
   private updateEntityMemory(entities: Record<string, any>): void {
     Object.entries(entities).forEach(([key, value]) => {
       if (value && typeof value === 'string' && value.length > 0) {
-        // Store entity with metadata
-        const entityInfo = {
-          value,
-          lastMentioned: Date.now(),
-          mentionCount: (this.context.entityMemory.get(key)?.mentionCount || 0) + 1,
-          context: this.context.currentTopic
-        };
+        // Check if entity already exists
+        const existingEntity = this.context.entityMemory.get(key);
         
-        this.context.entityMemory.set(key, entityInfo);
-        console.log(`💾 Stored entity: ${key} = ${value}`);
+        if (existingEntity) {
+          // Update existing entity (increment mention count, update timestamp)
+          const entityInfo = {
+            ...existingEntity,
+            lastMentioned: Date.now(),
+            mentionCount: existingEntity.mentionCount + 1
+          };
+          
+          this.context.entityMemory.set(key, entityInfo);
+          console.log(`🔄 Updated entity: ${key} = ${existingEntity.value} (mentions: ${entityInfo.mentionCount})`);
+        } else {
+          // Store new entity with metadata
+          const entityInfo = {
+            value,
+            lastMentioned: Date.now(),
+            mentionCount: 1,
+            context: this.context.currentTopic
+          };
+          
+          this.context.entityMemory.set(key, entityInfo);
+          console.log(`💾 Stored entity: ${key} = ${value}`);
+        }
       }
     });
 
@@ -315,12 +330,21 @@ export class PragmaticLayer {
    * Extract keywords from text for topic inference
    */
   private extractKeywords(text: string): string[] {
-    return text
+    const words = text
       .toLowerCase()
       .split(/\W+/)
       .filter(word => word.length > 3)
-      .filter(word => !this.isStopWord(word))
-      .slice(0, 3);
+      .filter(word => !this.isStopWord(word));
+    
+    // Filter out action words and prepositions
+    const actionWords = ['tell', 'show', 'give', 'help', 'explain', 'describe'];
+    const prepositions = ['about', 'with', 'from', 'into', 'onto', 'upon', 'over', 'under'];
+    const filterWords = [...actionWords, ...prepositions];
+    
+    const contentWords = words.filter(word => !filterWords.includes(word));
+    const prioritizedWords = contentWords.length > 0 ? contentWords : words;
+    
+    return prioritizedWords.slice(0, 3);
   }
 
   /**

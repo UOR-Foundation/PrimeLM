@@ -65,6 +65,7 @@ export class EpisodicMemoryLayer {
   private memoryIndex: Map<string, Set<string>> = new Map(); // keyword -> episode IDs
   private temporalIndex: Map<string, string[]> = new Map(); // date -> episode IDs
   private emotionalIndex: Map<string, string[]> = new Map(); // emotion -> episode IDs
+  private consolidationTimer: NodeJS.Timeout | null = null;
 
   constructor() {
     this.personalityProfile = this.initializePersonalityProfile();
@@ -688,8 +689,18 @@ export class EpisodicMemoryLayer {
     const config = globalConfig.getSection('conversation');
     const consolidationInterval = config?.cleanupInterval || 30 * 60 * 1000; // 30 minutes
     
-    setInterval(() => {
+    this.consolidationTimer = setInterval(() => {
       this.considerConsolidation();
     }, consolidationInterval);
+  }
+
+  /**
+   * Stop memory consolidation timer (for cleanup)
+   */
+  destroy(): void {
+    if (this.consolidationTimer) {
+      clearInterval(this.consolidationTimer);
+      this.consolidationTimer = null;
+    }
   }
 }

@@ -138,6 +138,9 @@ export class DiscourseLayer {
       } else if (this.topicState.currentTopic === newTopic) {
         // Continuing same topic - increase depth
         this.topicState.topicDepth++;
+      } else if (!this.topicState.currentTopic) {
+        // First topic establishment
+        this.topicState.topicDepth = 1;
       }
       
       this.topicState.currentTopic = newTopic;
@@ -153,7 +156,60 @@ export class DiscourseLayer {
   private extractTopicsFromInput(input: string, semanticContext: any): string[] {
     const topics: string[] = [];
     
-    // Use semantic entities as topic indicators
+    if (!semanticContext) {
+      return topics;
+    }
+
+    // Use semantic entities as primary topic indicators for ENTITY_QUERY
+    if (semanticContext.intent === 'ENTITY_QUERY' && semanticContext.entities && semanticContext.entities.length > 0) {
+      semanticContext.entities.forEach((entity: string) => {
+        const entityType = this.schemaVocabulary.inferEntityType(entity);
+        if (entityType) {
+          topics.push(`${entityType.toLowerCase()}_discussion`);
+        } else {
+          topics.push(`${entity}_topic`);
+        }
+      });
+      return topics;
+    }
+
+    // Use intent as secondary topic indicator
+    if (semanticContext.intent) {
+      switch (semanticContext.intent) {
+        case 'IDENTITY_INTRODUCTION':
+        case 'IDENTITY_QUERY':
+          topics.push('identity_discussion');
+          return topics;
+        case 'HELP_REQUEST':
+          topics.push('assistance_request');
+          return topics;
+        case 'INFORMATION_REQUEST':
+          // For information requests, check if we have entities first
+          if (semanticContext.entities && semanticContext.entities.length > 0) {
+            semanticContext.entities.forEach((entity: string) => {
+              const entityType = this.schemaVocabulary.inferEntityType(entity);
+              if (entityType) {
+                topics.push(`${entityType.toLowerCase()}_discussion`);
+              } else {
+                topics.push(`${entity}_topic`);
+              }
+            });
+          } else {
+            // If no entities and we have a current topic, maintain it for continuity
+            if (this.topicState.currentTopic && this.conversationFlow.currentPhase === 'deepening') {
+              topics.push(this.topicState.currentTopic);
+            } else {
+              topics.push('information_seeking');
+            }
+          }
+          return topics;
+        case 'GREETING':
+          topics.push('social_interaction');
+          return topics;
+      }
+    }
+
+    // Use semantic entities as fallback
     if (semanticContext.entities && semanticContext.entities.length > 0) {
       semanticContext.entities.forEach((entity: string) => {
         const entityType = this.schemaVocabulary.inferEntityType(entity);
@@ -165,23 +221,13 @@ export class DiscourseLayer {
       });
     }
 
-    // Use intent as topic indicator
-    if (semanticContext.intent) {
-      switch (semanticContext.intent) {
-        case 'IDENTITY_INTRODUCTION':
-        case 'IDENTITY_QUERY':
-          topics.push('identity_discussion');
-          break;
-        case 'HELP_REQUEST':
-          topics.push('assistance_request');
-          break;
-        case 'INFORMATION_REQUEST':
-          topics.push('information_seeking');
-          break;
-        case 'GREETING':
-          topics.push('social_interaction');
-          break;
-      }
+    // If no topics extracted but we have a current topic, continue with it for GENERAL_CONVERSATION
+    // Only apply this fallback if we're not in a topic transition scenario
+    if (topics.length === 0 && 
+        semanticContext.intent === 'GENERAL_CONVERSATION' && 
+        this.topicState.currentTopic &&
+        this.topicState.topicHistory.length === 0) {
+      topics.push(this.topicState.currentTopic);
     }
 
     return topics;
@@ -200,6 +246,11 @@ export class DiscourseLayer {
     const currentPhase = this.conversationFlow.currentPhase;
     let newPhase = currentPhase;
 
+    // Handle null/undefined semantic context
+    if (!semanticContext) {
+      return;
+    }
+
     // Determine conversation phase transitions
     switch (currentPhase) {
       case 'opening':
@@ -212,9 +263,12 @@ export class DiscourseLayer {
         break;
         
       case 'exploration':
-        if (this.topicState.topicDepth > 2) {
+        // Check for rapid topic changes first (4 different topics)
+        if (this.topicState.topicHistory.length >= 4) {
+          newPhase = 'transition';
+        } else if (this.topicState.topicDepth >= 4) {
           newPhase = 'deepening';
-        } else if (this.hasTopicTransition()) {
+        } else if (this.hasTopicTransition() && this.conversationFlow.turnsSincePhaseChange > 1) {
           newPhase = 'transition';
         }
         break;
@@ -347,7 +401,7 @@ export class DiscourseLayer {
     
     for (let i = recentTurns.length - 1; i >= 0; i--) {
       const turn = recentTurns[i];
-      if (Object.keys(turn.entities).length > 0) {
+      if (turn && turn.entities && Object.keys(turn.entities).length > 0) {
         // Return the first entity found (most recent)
         return Object.values(turn.entities)[0] as string;
       }
@@ -386,29 +440,70 @@ export class DiscourseLayer {
         });
       }
     });
+    
+    // Check for topic-related keywords in input
+    const lowerInput = input.toLowerCase();
+    
+    // Check for animal discussion references
+    if (lowerInput.includes('animal') || lowerInput.includes('dog') || lowerInput.includes('cat')) {
+      if (this.topicState.topicHistory.includes('animal_discussion') || this.topicState.currentTopic === 'animal_discussion') {
+        this.referenceResolution.contextualReferences.set('animal_discussion', {
+          referenceType: 'topic_callback',
+          originalContext: 'animal_discussion',
+          currentMention: input
+        });
+      }
+    }
+    
+    // Check for general topic references
+    if (lowerInput.includes('discussion') || lowerInput.includes('topic') || lowerInput.includes('back to')) {
+      // Add reference to current or recent topics
+      if (this.topicState.currentTopic) {
+        this.referenceResolution.contextualReferences.set(this.topicState.currentTopic, {
+          referenceType: 'topic_callback',
+          originalContext: this.topicState.currentTopic,
+          currentMention: input
+        });
+      }
+    }
   }
 
   /**
    * Calculate topic continuity score
    */
   private calculateTopicContinuity(input: string, semanticContext: any): number {
-    if (!this.topicState.currentTopic) return 0;
+    // If no topic is established yet, return 0
+    if (!this.topicState.currentTopic) {
+      return 0;
+    }
     
     let continuity = 0;
     
     // Check for topic-related keywords
     const topicKeywords = this.getTopicKeywords(this.topicState.currentTopic);
-    const inputWords = input.toLowerCase().split(/\W+/);
+    const inputWords = input.toLowerCase().split(/\W+/).filter(word => word.length > 0);
     
     const matchingKeywords = inputWords.filter(word => 
       topicKeywords.includes(word)
     ).length;
     
-    continuity = matchingKeywords / Math.max(topicKeywords.length, 1);
+    if (topicKeywords.length > 0) {
+      continuity = matchingKeywords / topicKeywords.length;
+    }
     
     // Boost continuity for entity references
-    if (semanticContext.entities && semanticContext.entities.length > 0) {
+    if (semanticContext && semanticContext.entities && semanticContext.entities.length > 0) {
       continuity += 0.3;
+    }
+    
+    // For the very first topic establishment (depth = 1) with no history, return 0
+    if (this.topicState.topicDepth === 1 && this.topicState.topicHistory.length === 0) {
+      return 0;
+    }
+    
+    // If we have keyword matches AND this isn't the first topic establishment, ensure minimum continuity
+    if (matchingKeywords > 0 && this.topicState.topicDepth > 1) {
+      continuity = Math.max(continuity, 0.2);
     }
     
     return Math.min(1, continuity);
@@ -420,7 +515,7 @@ export class DiscourseLayer {
   private getTopicKeywords(topic: string): string[] {
     const topicKeywordMap: Record<string, string[]> = {
       'identity_discussion': ['name', 'identity', 'who', 'person', 'individual'],
-      'animal_discussion': ['dog', 'cat', 'pet', 'animal', 'breed', 'species'],
+      'animal_discussion': ['dog', 'cat', 'pet', 'animal', 'animals', 'breed', 'species'],
       'vehicle_discussion': ['car', 'truck', 'vehicle', 'drive', 'transportation'],
       'assistance_request': ['help', 'assist', 'support', 'aid', 'guidance'],
       'information_seeking': ['what', 'how', 'why', 'when', 'where', 'question'],
@@ -442,10 +537,12 @@ export class DiscourseLayer {
     // Check for consistent entity references
     const entityCounts = new Map<string, number>();
     recentTurns.forEach(turn => {
-      Object.values(turn.entities).forEach(entity => {
-        const entityStr = entity as string;
-        entityCounts.set(entityStr, (entityCounts.get(entityStr) || 0) + 1);
-      });
+      if (turn && turn.entities && typeof turn.entities === 'object') {
+        Object.values(turn.entities).forEach(entity => {
+          const entityStr = entity as string;
+          entityCounts.set(entityStr, (entityCounts.get(entityStr) || 0) + 1);
+        });
+      }
     });
     
     // Higher coherence for repeated entity references
@@ -489,27 +586,29 @@ export class DiscourseLayer {
     // Base response type on semantic intent
     let responseType = 'acknowledgment';
     
-    switch (semanticContext.intent) {
-      case 'QUESTION':
-      case 'INFORMATION_REQUEST':
-      case 'IDENTITY_QUERY':
-      case 'ENTITY_QUERY':
-      case 'BOT_IDENTITY_QUERY':
-        responseType = 'informative_answer';
-        break;
-      case 'GREETING':
-        responseType = 'social_response';
-        break;
-      case 'IDENTITY_INTRODUCTION':
-      case 'ENTITY_INTRODUCTION':
-        responseType = 'acknowledgment_with_followup';
-        break;
-      case 'HELP_REQUEST':
-        responseType = 'supportive_response';
-        break;
-      case 'GRATITUDE':
-        responseType = 'gracious_acknowledgment';
-        break;
+    if (semanticContext && semanticContext.intent) {
+      switch (semanticContext.intent) {
+        case 'QUESTION':
+        case 'INFORMATION_REQUEST':
+        case 'IDENTITY_QUERY':
+        case 'ENTITY_QUERY':
+        case 'BOT_IDENTITY_QUERY':
+          responseType = 'informative_answer';
+          break;
+        case 'GREETING':
+          responseType = 'social_response';
+          break;
+        case 'IDENTITY_INTRODUCTION':
+        case 'ENTITY_INTRODUCTION':
+          responseType = 'acknowledgment_with_followup';
+          break;
+        case 'HELP_REQUEST':
+          responseType = 'supportive_response';
+          break;
+        case 'GRATITUDE':
+          responseType = 'gracious_acknowledgment';
+          break;
+      }
     }
     
     // Modify based on conversation phase

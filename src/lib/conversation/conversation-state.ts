@@ -109,6 +109,32 @@ export class ConversationStateManager {
   private processEntities(turn: ConversationTurn): void {
     const { entities, intent, text, speaker } = turn;
 
+    // Handle special pronoun patterns first ("Her name is Sarah")
+    if (intent === 'ENTITY_INTRODUCTION' && Object.keys(entities).length === 3) {
+      const entityValues = Object.values(entities) as string[];
+      const [pronoun, nameWord, name] = entityValues;
+      
+      if ((pronoun === 'her' || pronoun === 'his' || pronoun === 'its') && 
+          nameWord === 'name' && 
+          name && name[0].toUpperCase() === name[0]) {
+        
+        const referencedEntity = this.resolvePronouns(text, turn);
+        if (referencedEntity) {
+          // Store the name relationship
+          this.entityMemory.store({
+            value: name,
+            type: 'relationship',
+            relationship: 'hasName',
+            subject: referencedEntity,
+            entityType: this.inferEntityType(referencedEntity),
+            context: [text],
+            metadata: { turnId: turn.id, speaker, intent, pronoun }
+          });
+          return; // Skip the default entity processing
+        }
+      }
+    }
+
     // Process each entity based on intent and context
     Object.entries(entities).forEach(([key, value]) => {
       if (!value || typeof value !== 'string') return;
@@ -127,7 +153,7 @@ export class ConversationStateManager {
       // Determine entity type and relationship based on intent and patterns
       switch (intent) {
         case 'IDENTITY_INTRODUCTION':
-          if (key.includes('entity_0') || entities.length === 1) {
+          if (key.includes('entity_0') || Object.keys(entities).length === 1) {
             entityInfo.type = 'identity';
             entityInfo.subject = 'user';
           }
@@ -477,6 +503,14 @@ export class ConversationStateManager {
       this.performCleanup();
       this.lastCleanup = now;
     }
+  }
+
+  /**
+   * Force cleanup for testing purposes
+   */
+  forceCleanup(): void {
+    this.performCleanup();
+    this.lastCleanup = Date.now();
   }
 
   /**
