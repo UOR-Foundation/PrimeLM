@@ -408,17 +408,17 @@ export class GracefulErrorHandler {
     let status: 'healthy' | 'degraded' | 'critical' = 'healthy';
     const recommendations: string[] = [];
     
-    if (errorRate > 5 || recoveryRate < 0.5) {
-      status = 'critical';
-      recommendations.push('System requires immediate attention');
-      recommendations.push('Consider restarting core components');
-    } else if (errorRate > 2 || recoveryRate < 0.8 || recentErrors > 3) {
-      status = 'degraded';
-      recommendations.push('Monitor system closely');
-      recommendations.push('Check component health');
-    }
-    
+    // Only consider system unhealthy if there are actual recent errors
     if (recentErrors > 0) {
+      if (errorRate > 5 || (recoveryRate < 0.5 && recoveryRate > 0)) {
+        status = 'critical';
+        recommendations.push('System requires immediate attention');
+        recommendations.push('Consider restarting core components');
+      } else if (errorRate > 2 || (recoveryRate < 0.8 && recoveryRate > 0) || recentErrors > 3) {
+        status = 'degraded';
+        recommendations.push('Monitor system closely');
+        recommendations.push('Check component health');
+      }
       recommendations.push(`${recentErrors} recent errors detected`);
     }
     
@@ -510,12 +510,35 @@ export function safeSync<T>(
       ...context
     };
     
-    // For sync operations, we need to handle the promise
-    const result = errorHandler.handleError(error as Error, fullContext, defaultValue);
-    if (result instanceof Promise) {
-      throw new Error('Async fallback not supported in sync context');
+    // For sync operations, find a synchronous fallback strategy
+    const strategy = errorHandler['findFallbackStrategy'](error as Error, fullContext);
+    
+    if (strategy) {
+      try {
+        const result = strategy.execute(error as Error, fullContext);
+        if (result instanceof Promise) {
+          throw new Error('Async fallback not supported in sync context');
+        }
+        errorHandler['recordError'](error as Error, fullContext);
+        errorHandler['recordRecovery'](fullContext, true);
+        return result;
+      } catch (fallbackError) {
+        errorHandler['recordError'](error as Error, fullContext);
+        errorHandler['recordRecovery'](fullContext, false);
+        // If the fallback error is about async context, re-throw it
+        if (fallbackError instanceof Error && fallbackError.message === 'Async fallback not supported in sync context') {
+          throw fallbackError;
+        }
+      }
     }
-    return result;
+    
+    // If no sync fallback available, use default value or throw
+    if (defaultValue !== undefined) {
+      errorHandler['recordError'](error as Error, fullContext);
+      return defaultValue;
+    }
+    
+    throw error;
   }
 }
 
