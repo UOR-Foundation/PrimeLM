@@ -7,6 +7,154 @@ describe('PragmaticLayer', () => {
     pragmaticLayer = new PragmaticLayer();
   });
 
+  describe('memory persistence and retrieval', () => {
+    it('should persistently store and retrieve user name across multiple turns', () => {
+      // Store user name
+      pragmaticLayer.processTurn(
+        'human',
+        'My name is Alex',
+        'IDENTITY_INTRODUCTION',
+        { entity_0: 'Alex' },
+        {}
+      );
+
+      // Verify immediate storage
+      let userNameEntity = pragmaticLayer.queryEntityMemory('user_name');
+      expect(userNameEntity).toBeDefined();
+      expect(userNameEntity.value).toBe('Alex');
+      expect(userNameEntity.relationship).toBe('identity');
+
+      // Add several other conversation turns
+      pragmaticLayer.processTurn('human', 'How are you?', 'QUESTION', {}, {});
+      pragmaticLayer.processTurn('chatbot', 'I am well, thank you!', 'RESPONSE', {}, {});
+      pragmaticLayer.processTurn('human', 'What can you do?', 'QUESTION', {}, {});
+      pragmaticLayer.processTurn('chatbot', 'I can help with many things', 'RESPONSE', {}, {});
+
+      // Verify name is still stored after multiple turns
+      userNameEntity = pragmaticLayer.queryEntityMemory('user_name');
+      expect(userNameEntity).toBeDefined();
+      expect(userNameEntity.value).toBe('Alex');
+      expect(userNameEntity.relationship).toBe('identity');
+
+      // Add more turns to test long-term persistence
+      for (let i = 0; i < 10; i++) {
+        pragmaticLayer.processTurn('human', `Message ${i}`, 'GENERAL_CONVERSATION', {}, {});
+      }
+
+      // Verify name is STILL stored after many turns
+      userNameEntity = pragmaticLayer.queryEntityMemory('user_name');
+      expect(userNameEntity).toBeDefined();
+      expect(userNameEntity.value).toBe('Alex');
+      expect(userNameEntity.relationship).toBe('identity');
+    });
+
+    it('should persistently store and retrieve entity relationships', () => {
+      // Store wife's name
+      pragmaticLayer.processTurn(
+        'human',
+        'My wife\'s name is Arielle',
+        'ENTITY_INTRODUCTION',
+        { entity_0: 'wife', entity_1: 'Arielle' },
+        {}
+      );
+
+      // Verify immediate storage
+      let wifeNameEntity = pragmaticLayer.queryEntityMemory('wife_name');
+      expect(wifeNameEntity).toBeDefined();
+      expect(wifeNameEntity.value).toBe('Arielle');
+      expect(wifeNameEntity.entityType).toBe('wife');
+      expect(wifeNameEntity.relationship).toBe('hasName');
+
+      // Add many conversation turns
+      for (let i = 0; i < 15; i++) {
+        pragmaticLayer.processTurn('human', `Random message ${i}`, 'GENERAL_CONVERSATION', {}, {});
+      }
+
+      // Verify relationship is still stored
+      wifeNameEntity = pragmaticLayer.queryEntityMemory('wife_name');
+      expect(wifeNameEntity).toBeDefined();
+      expect(wifeNameEntity.value).toBe('Arielle');
+      expect(wifeNameEntity.entityType).toBe('wife');
+      expect(wifeNameEntity.relationship).toBe('hasName');
+    });
+
+    it('should handle multiple entity relationships simultaneously', () => {
+      // Store multiple relationships
+      pragmaticLayer.processTurn(
+        'human',
+        'My name is John',
+        'IDENTITY_INTRODUCTION',
+        { entity_0: 'John' },
+        {}
+      );
+
+      pragmaticLayer.processTurn(
+        'human',
+        'My dog\'s name is Max',
+        'ENTITY_INTRODUCTION',
+        { entity_0: 'dog', entity_1: 'Max' },
+        {}
+      );
+
+      pragmaticLayer.processTurn(
+        'human',
+        'My car\'s name is Lightning',
+        'ENTITY_INTRODUCTION',
+        { entity_0: 'car', entity_1: 'Lightning' },
+        {}
+      );
+
+      // Add intervening conversation
+      for (let i = 0; i < 5; i++) {
+        pragmaticLayer.processTurn('human', `Chat ${i}`, 'GENERAL_CONVERSATION', {}, {});
+      }
+
+      // Verify all relationships are preserved
+      const userName = pragmaticLayer.queryEntityMemory('user_name');
+      expect(userName?.value).toBe('John');
+
+      const dogName = pragmaticLayer.queryEntityMemory('dog_name');
+      expect(dogName?.value).toBe('Max');
+      expect(dogName?.entityType).toBe('dog');
+
+      const carName = pragmaticLayer.queryEntityMemory('car_name');
+      expect(carName?.value).toBe('Lightning');
+      expect(carName?.entityType).toBe('car');
+    });
+
+    it('should preserve entity memory across conversation history trimming', () => {
+      // Store important entities
+      pragmaticLayer.processTurn(
+        'human',
+        'My name is Emma',
+        'IDENTITY_INTRODUCTION',
+        { entity_0: 'Emma' },
+        {}
+      );
+
+      pragmaticLayer.processTurn(
+        'human',
+        'My pet\'s name is Fluffy',
+        'ENTITY_INTRODUCTION',
+        { entity_0: 'pet', entity_1: 'Fluffy' },
+        {}
+      );
+
+      // Fill up conversation history to trigger history trimming
+      for (let i = 0; i < 25; i++) {
+        pragmaticLayer.processTurn('human', `Filler message ${i}`, 'GENERAL_CONVERSATION', {}, {});
+      }
+
+      // Verify entities are still accessible even after history trimming
+      const userName = pragmaticLayer.queryEntityMemory('user_name');
+      expect(userName?.value).toBe('Emma');
+
+      const petName = pragmaticLayer.queryEntityMemory('pet_name');
+      expect(petName?.value).toBe('Fluffy');
+      expect(petName?.entityType).toBe('pet');
+    });
+  });
+
   describe('constructor', () => {
     it('should initialize with empty context', () => {
       const context = pragmaticLayer.getContextForResponse();

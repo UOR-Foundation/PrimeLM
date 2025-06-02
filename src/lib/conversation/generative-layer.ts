@@ -702,6 +702,24 @@ export class GenerativeLayer {
    * Handle name queries
    */
   private handleNameQuery(pragmaticContext: ConversationContext, style: GenerationStyle): string {
+    // First check entity memory for stored user name
+    const userNameEntity = pragmaticContext.entityMemory.get('user_name');
+    
+    if (userNameEntity && userNameEntity.value) {
+      const name = this.capitalizeFirstLetter(userNameEntity.value);
+      switch (style.personality) {
+        case 'friendly':
+          return `Your name is ${name}! I remember you telling me that.`;
+        case 'analytical':
+          return `Based on stored entity memory, your name is ${name}.`;
+        case 'professional':
+          return `According to our conversation, your name is ${name}.`;
+        default:
+          return `Your name is ${name}.`;
+      }
+    }
+    
+    // Fallback to conversation history search if not in entity memory
     const context = pragmaticContext.conversationHistory.map(turn => turn.text).join(' ');
     const nameMatch = context.match(/my name is (\w+)/i);
     

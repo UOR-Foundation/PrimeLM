@@ -228,22 +228,155 @@ describe('KnowledgeBootstrap', () => {
       expect(knowledgeBase.vocabulary.has('verylongwordthatexceedslimit')).toBe(false);
     });
 
-    it('should handle numeric tokenizer detection', async () => {
+    it('should handle numeric tokenizer (ID->word mapping)', async () => {
       // Create a numeric tokenizer (like BERT's WordPiece)
-      const numericPipeline = jest.fn();
+      const numericPipeline = jest.fn().mockImplementation(async (text: string) => {
+        const embedding = new Array(384).fill(0).map((_, i) => Math.sin(i / 100) * 0.1);
+        return { data: embedding };
+      });
+      
       (numericPipeline as any).tokenizer = {
         model: {
           vocab: {
-            '0': 'hello',
-            '1': 'world',
-            '2': 'test'
+            '0': '[PAD]',
+            '1': '[UNK]',
+            '2': 'hello',
+            '3': 'world',
+            '4': 'test',
+            '5': 'knowledge',
+            '6': 'bootstrap',
+            '7': 'vocabulary'
           }
         }
       };
 
       const bootstrap = new KnowledgeBootstrap(numericPipeline);
+      const knowledgeBase = await bootstrap.bootstrapFromTokenizer();
 
-      await expect(bootstrap.bootstrapFromTokenizer()).rejects.toThrow('numeric tokenizer');
+      // Should successfully extract words from numeric tokenizer
+      expect(knowledgeBase.vocabulary.size).toBeGreaterThan(0);
+      expect(knowledgeBase.vocabulary.has('hello')).toBe(true);
+      expect(knowledgeBase.vocabulary.has('world')).toBe(true);
+      expect(knowledgeBase.vocabulary.has('test')).toBe(true);
+      
+      // Special tokens should be filtered out
+      expect(knowledgeBase.vocabulary.has('[PAD]')).toBe(false);
+      expect(knowledgeBase.vocabulary.has('[UNK]')).toBe(false);
+    });
+
+    it('should handle numeric tokenizer via tokenizer.vocab', async () => {
+      const numericPipeline = jest.fn().mockImplementation(async (text: string) => {
+        const embedding = new Array(384).fill(0).map((_, i) => Math.sin(i / 100) * 0.1);
+        return { data: embedding };
+      });
+      
+      (numericPipeline as any).tokenizer = {
+        vocab: {
+          '0': '[PAD]',
+          '1': '[UNK]',
+          '2': 'hello',
+          '3': 'world',
+          '4': 'test'
+        }
+      };
+
+      const bootstrap = new KnowledgeBootstrap(numericPipeline);
+      const knowledgeBase = await bootstrap.bootstrapFromTokenizer();
+
+      expect(knowledgeBase.vocabulary.size).toBeGreaterThan(0);
+      expect(knowledgeBase.vocabulary.has('hello')).toBe(true);
+      expect(knowledgeBase.vocabulary.has('world')).toBe(true);
+    });
+
+    it('should handle numeric tokenizer via getVocab method', async () => {
+      const numericPipeline = jest.fn().mockImplementation(async (text: string) => {
+        const embedding = new Array(384).fill(0).map((_, i) => Math.sin(i / 100) * 0.1);
+        return { data: embedding };
+      });
+      
+      (numericPipeline as any).tokenizer = {
+        getVocab: () => ({
+          '0': '[PAD]',
+          '1': '[UNK]',
+          '2': 'hello',
+          '3': 'world',
+          '4': 'test'
+        })
+      };
+
+      const bootstrap = new KnowledgeBootstrap(numericPipeline);
+      const knowledgeBase = await bootstrap.bootstrapFromTokenizer();
+
+      expect(knowledgeBase.vocabulary.size).toBeGreaterThan(0);
+      expect(knowledgeBase.vocabulary.has('hello')).toBe(true);
+      expect(knowledgeBase.vocabulary.has('world')).toBe(true);
+    });
+
+    it('should handle mixed vocabulary with subword tokens', async () => {
+      const mixedPipeline = jest.fn().mockImplementation(async (text: string) => {
+        const embedding = new Array(384).fill(0).map((_, i) => Math.sin(i / 100) * 0.1);
+        return { data: embedding };
+      });
+      
+      (mixedPipeline as any).tokenizer = {
+        model: {
+          vocab: {
+            '0': '[PAD]',
+            '1': '[UNK]',
+            '2': 'hello',
+            '3': 'world',
+            '4': '##ing',
+            '5': '##ed',
+            '6': 'test',
+            '7': 'knowledge',
+            '8': '##s'
+          }
+        }
+      };
+
+      const bootstrap = new KnowledgeBootstrap(mixedPipeline);
+      const knowledgeBase = await bootstrap.bootstrapFromTokenizer();
+
+      // Should include full words but filter out subword tokens
+      expect(knowledgeBase.vocabulary.has('hello')).toBe(true);
+      expect(knowledgeBase.vocabulary.has('world')).toBe(true);
+      expect(knowledgeBase.vocabulary.has('test')).toBe(true);
+      expect(knowledgeBase.vocabulary.has('knowledge')).toBe(true);
+      
+      // Should filter out subword tokens
+      expect(knowledgeBase.vocabulary.has('##ing')).toBe(false);
+      expect(knowledgeBase.vocabulary.has('##ed')).toBe(false);
+      expect(knowledgeBase.vocabulary.has('##s')).toBe(false);
+    });
+
+    it('should use lenient filtering when strict filtering yields too few words', async () => {
+      const sparsePipeline = jest.fn().mockImplementation(async (text: string) => {
+        const embedding = new Array(384).fill(0).map((_, i) => Math.sin(i / 100) * 0.1);
+        return { data: embedding };
+      });
+      
+      (sparsePipeline as any).tokenizer = {
+        model: {
+          vocab: {
+            '0': '[PAD]',
+            '1': '[UNK]',
+            '2': 'hello',
+            '3': 'world-test', // Would be filtered by strict rules
+            '4': 'test123',    // Would be filtered by strict rules
+            '5': 'a',          // Too short
+            '6': 'verylongwordthatexceedslimit' // Too long
+          }
+        }
+      };
+
+      const bootstrap = new KnowledgeBootstrap(sparsePipeline);
+      const knowledgeBase = await bootstrap.bootstrapFromTokenizer();
+
+      // Should use lenient filtering and include some words that would normally be filtered
+      expect(knowledgeBase.vocabulary.size).toBeGreaterThan(0);
+      expect(knowledgeBase.vocabulary.has('hello')).toBe(true);
+      // Lenient filtering should allow some previously filtered words
+      expect(knowledgeBase.vocabulary.has('world-test') || knowledgeBase.vocabulary.has('test123')).toBe(true);
     });
   });
 

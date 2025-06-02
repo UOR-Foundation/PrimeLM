@@ -84,7 +84,9 @@ export class KnowledgeBootstrap {
         console.log('Found word->ID mapping, using keys as vocabulary');
       } else if (typeof firstKey === 'string' && /^\d+$/.test(firstKey)) {
         // This is a numeric tokenizer (token ID -> word mapping)
-        throw new Error('Detected numeric tokenizer - cannot extract meaningful vocabulary');
+        // Extract the values (actual words) instead of keys (token IDs)
+        vocab = Object.values(vocabObj) as string[];
+        console.log('Found ID->word mapping, using values as vocabulary');
       } else {
         vocab = Object.keys(vocabObj);
         console.log('Using keys as vocabulary (default)');
@@ -93,11 +95,31 @@ export class KnowledgeBootstrap {
       console.log('Extracted vocab length:', vocab.length);
       console.log('Sample vocab words:', vocab.slice(0, 20));
     } else if (tokenizer.vocab) {
-      vocab = Object.keys(tokenizer.vocab);
-      console.log('Found vocab via tokenizer.vocab:', vocab.length);
+      const vocabObj = tokenizer.vocab;
+      const firstKey = Object.keys(vocabObj)[0];
+      
+      if (typeof firstKey === 'string' && /^\d+$/.test(firstKey)) {
+        // Numeric keys, use values
+        vocab = Object.values(vocabObj) as string[];
+        console.log('Found vocab via tokenizer.vocab (ID->word):', vocab.length);
+      } else {
+        // String keys, use keys
+        vocab = Object.keys(vocabObj);
+        console.log('Found vocab via tokenizer.vocab (word->ID):', vocab.length);
+      }
     } else if (tokenizer.getVocab) {
-      vocab = Object.keys(tokenizer.getVocab());
-      console.log('Found vocab via tokenizer.getVocab():', vocab.length);
+      const vocabObj = tokenizer.getVocab();
+      const firstKey = Object.keys(vocabObj)[0];
+      
+      if (typeof firstKey === 'string' && /^\d+$/.test(firstKey)) {
+        // Numeric keys, use values
+        vocab = Object.values(vocabObj) as string[];
+        console.log('Found vocab via tokenizer.getVocab() (ID->word):', vocab.length);
+      } else {
+        // String keys, use keys
+        vocab = Object.keys(vocabObj);
+        console.log('Found vocab via tokenizer.getVocab() (word->ID):', vocab.length);
+      }
     } else {
       throw new Error('Unable to access tokenizer vocabulary - no known vocabulary access method found');
     }
@@ -120,14 +142,6 @@ export class KnowledgeBootstrap {
     console.log('🔍 Filtering vocabulary from', vocab.length, 'words');
     console.log('Sample vocab words:', vocab.slice(0, 20));
     
-    // Check if this is a numeric tokenizer (like BERT's WordPiece)
-    const sampleSize = Math.min(100, vocab.length);
-    const isNumericTokenizer = vocab.slice(0, sampleSize).every(token => /^\d+$/.test(token));
-    
-    if (isNumericTokenizer) {
-      throw new Error('Detected numeric tokenizer - cannot extract meaningful vocabulary');
-    }
-    
     const filtered = vocab
       .filter(word => {
         // Filter out special tokens, fragments, and non-words
@@ -141,11 +155,14 @@ export class KnowledgeBootstrap {
     
     // If filtering results in too few words, be more lenient
     if (filtered.length < 10 && vocab.length > 0) {
+      console.log('⚠️ Strict filtering yielded too few words, using lenient filtering');
       return vocab
         .filter(word => {
-          // More lenient filtering
-          if (word.startsWith('[') || word.startsWith('<')) return false;
+          // More lenient filtering - allow some punctuation and longer words
+          if (word.startsWith('[') || word.startsWith('<') || word.startsWith('##')) return false;
           if (word.length < 2 || word.length > 20) return false;
+          if (/^\d+$/.test(word)) return false; // Still filter pure numbers
+          // Allow words with some punctuation/symbols
           return true;
         })
         .slice(0, 800);
