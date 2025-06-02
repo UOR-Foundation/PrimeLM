@@ -83,9 +83,8 @@ export class KnowledgeBootstrap {
         vocab = Object.keys(vocabObj);
         console.log('Found word->ID mapping, using keys as vocabulary');
       } else if (typeof firstKey === 'string' && /^\d+$/.test(firstKey)) {
-        // This is token ID -> word mapping, use the values (words)
-        vocab = Object.values(vocabObj) as string[];
-        console.log('Found ID->word mapping, using values as vocabulary');
+        // This is a numeric tokenizer (token ID -> word mapping)
+        throw new Error('Detected numeric tokenizer - cannot extract meaningful vocabulary');
       } else {
         vocab = Object.keys(vocabObj);
         console.log('Using keys as vocabulary (default)');
@@ -122,10 +121,11 @@ export class KnowledgeBootstrap {
     console.log('Sample vocab words:', vocab.slice(0, 20));
     
     // Check if this is a numeric tokenizer (like BERT's WordPiece)
-    const isNumericTokenizer = vocab.slice(0, 100).every(token => /^\d+$/.test(token));
+    const sampleSize = Math.min(100, vocab.length);
+    const isNumericTokenizer = vocab.slice(0, sampleSize).every(token => /^\d+$/.test(token));
     
     if (isNumericTokenizer) {
-      throw new Error('Detected numeric tokenizer with token IDs instead of vocabulary words - cannot extract meaningful vocabulary');
+      throw new Error('Detected numeric tokenizer - cannot extract meaningful vocabulary');
     }
     
     const filtered = vocab
@@ -138,6 +138,18 @@ export class KnowledgeBootstrap {
         return true;
       })
       .slice(0, 800); // Limit to manageable size
+    
+    // If filtering results in too few words, be more lenient
+    if (filtered.length < 10 && vocab.length > 0) {
+      return vocab
+        .filter(word => {
+          // More lenient filtering
+          if (word.startsWith('[') || word.startsWith('<')) return false;
+          if (word.length < 2 || word.length > 20) return false;
+          return true;
+        })
+        .slice(0, 800);
+    }
     
     console.log('Filtered to', filtered.length, 'meaningful words');
     console.log('Sample filtered words:', filtered.slice(0, 20));

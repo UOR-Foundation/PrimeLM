@@ -150,6 +150,10 @@ export class SchemaVocabulary {
    * Infer entity type from text and context
    */
   inferEntityType(entityText: string, context?: string): string | null {
+    if (!entityText || typeof entityText !== 'string') {
+      return null;
+    }
+    
     const lowerText = entityText.toLowerCase();
     
     // Direct type mapping
@@ -248,6 +252,10 @@ export class SchemaVocabulary {
     object: { text: string; type: string | null };
     confidence: number;
   } | null {
+    if (!text || typeof text !== 'string') {
+      return null;
+    }
+    
     console.log('🔍 Parsing semantic relationships in:', text);
     
     // Pattern: "My X's name is Y"
@@ -311,16 +319,20 @@ export class SchemaVocabulary {
     object?: string;
     entityType?: string;
   } | null {
+    if (!text || typeof text !== 'string') {
+      return null;
+    }
+    
     console.log('🔍 Generating semantic query for:', text);
     
-    // Query patterns: "What is my X's name?"
+    // Query patterns: "What is my X's name?" - use original text to preserve case
     const queryPattern = /what\s+is\s+my\s+(\w+)'?s?\s+(\w+)/i;
     const queryMatch = text.match(queryPattern);
     
     if (queryMatch) {
       const entityText = queryMatch[1];
-      const propertyText = queryMatch[2];
-      const entityType = this.inferEntityType(entityText);
+      const propertyText = queryMatch[2].toLowerCase();
+      const entityType = this.inferEntityType(entityText.toLowerCase());
       
       if (propertyText === 'name') {
         return {
