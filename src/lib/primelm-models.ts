@@ -7,6 +7,10 @@ import { PragmaticLayer, ConversationContext } from './pragmatic-layer';
 import { SchemaVocabulary } from './schema-vocabulary';
 import { DiscourseLayer } from './discourse-layer';
 import { GenerativeLayer, GenerationContext } from './generative-layer';
+import { ConversationStateManager, ConversationTurn } from './conversation-state';
+import { GracefulErrorHandler, createErrorContext, safeAsync } from './error-handling';
+import { EpisodicMemoryLayer } from './episodic-memory';
+import { EmotionalIntelligenceLayer } from './emotional-intelligence';
 
 // =============================================================================
 // CORE MODEL INTERFACES
@@ -60,6 +64,8 @@ export class PrimeCore {
   private schemaVocabulary: SchemaVocabulary;
   private discourseLayer: DiscourseLayer;
   private generativeLayer: GenerativeLayer;
+  private episodicMemoryLayer: EpisodicMemoryLayer;
+  private emotionalIntelligenceLayer: EmotionalIntelligenceLayer;
   
   humanUser: UserModel;
   chatbotUser: UserModel;
@@ -139,6 +145,10 @@ export class PrimeCore {
     
     // Initialize generative layer
     this.generativeLayer = new GenerativeLayer(this.schemaVocabulary);
+    
+    // Initialize Phase 3 layers
+    this.episodicMemoryLayer = new EpisodicMemoryLayer();
+    this.emotionalIntelligenceLayer = new EmotionalIntelligenceLayer();
 
     // Embeddings model starts empty - no hardcoded data
   }
@@ -398,7 +408,7 @@ export class PrimeCore {
   }
 
   private async generateResponseText(primes: Record<number, number>): Promise<string> {
-    console.log('🔍 Generating response text using Phase 2: Discourse + Generative layers...');
+    console.log('🔍 Generating response text using Phase 3: Full 8-Layer Architecture...');
     console.log('Knowledge base available:', !!this.knowledgeBase);
     
     if (!this.knowledgeBase) {
@@ -457,7 +467,44 @@ export class PrimeCore {
       pragmaticContextForGeneration
     );
     
-    // 6. Generate response using Generative Layer
+    // 6. PHASE 3: Analyze emotional context
+    const emotionalContext = this.emotionalIntelligenceLayer.analyzeEmotionalContent(
+      lastUserInput,
+      {
+        conversationHistory: pragmaticContextForGeneration.conversationHistory,
+        currentTopic: pragmaticContextForGeneration.currentTopic
+      }
+    );
+    
+    // 7. PHASE 3: Store episodic memory
+    const episodeId = this.episodicMemoryLayer.storeEpisode(
+      'conversation',
+      {
+        summary: `User said: "${lastUserInput}"`,
+        details: {
+          intent: semanticContext.intent,
+          entities: semanticContext.entities,
+          emotionalState: emotionalContext.userEmotion
+        },
+        participants: ['human', 'chatbot'],
+        context: discourseContext.conversationPhase || 'general'
+      },
+      {
+        valence: emotionalContext.userEmotion.valence,
+        arousal: emotionalContext.userEmotion.arousal,
+        dominance: emotionalContext.userEmotion.dominance,
+        emotions: [emotionalContext.userEmotion.primary, ...emotionalContext.userEmotion.secondary]
+      },
+      emotionalContext.empathyLevel
+    );
+    
+    // 8. PHASE 3: Generate emotional response strategy
+    const emotionalResponse = this.emotionalIntelligenceLayer.generateEmotionalResponse(
+      emotionalContext,
+      '' // Will be filled after generation
+    );
+    
+    // 9. Generate response using Generative Layer with Phase 3 enhancements
     const generationContext: GenerationContext = {
       responseType: discourseContext.expectedResponseType,
       semanticContext: semanticContext,
@@ -466,7 +513,16 @@ export class PrimeCore {
       primeResonance: primes
     };
     
-    const generatedResponse = this.generativeLayer.generateResponse(generationContext);
+    let generatedResponse = this.generativeLayer.generateResponse(generationContext);
+    
+    // 10. PHASE 3: Enhance response with emotional intelligence
+    if (generatedResponse) {
+      generatedResponse = this.enhanceResponseWithEmotionalIntelligence(
+        generatedResponse,
+        emotionalResponse,
+        emotionalContext
+      );
+    }
     
     if (generatedResponse) {
       console.log('🎨 Generated dynamic response:', generatedResponse);
@@ -845,17 +901,126 @@ export class PrimeCore {
 
   private generateBasicResponse(primes: Record<number, number>): string {
     const magnitude = PrimeMath.calculateMagnitude(primes);
+    const primeCount = Object.keys(primes).length;
+    const dominantPrime = Object.entries(primes).sort(([,a], [,b]) => b - a)[0];
     
-    // Basic conversational responses based on mathematical properties
+    // Mathematical analysis-based responses
+    if (magnitude > 1000) {
+      return "I detect strong mathematical patterns in your message. The prime factorization suggests complex semantic content. How can I help you explore this further?";
+    } else if (magnitude > 500) {
+      return "I'm analyzing the mathematical structure of your input. The prime resonance indicates meaningful content. What would you like to discuss?";
+    } else if (primeCount > 5) {
+      return "I notice rich mathematical diversity in the prime factors. This suggests multifaceted meaning. Tell me more about what interests you.";
+    } else if (dominantPrime && parseInt(dominantPrime[0]) > 100) {
+      return `The dominant prime factor ${dominantPrime[0]} suggests sophisticated semantic content. I'm ready to engage with your ideas.`;
+    }
+    
+    // Contextual responses based on conversation state
+    const conversationLength = this.humanUser.conversationState.turnCount;
+    if (conversationLength === 1) {
+      return "Welcome! I'm PrimeLM, processing your input through mathematical prime factorization. What would you like to explore together?";
+    } else if (conversationLength < 5) {
+      return "I'm building our conversational context through mathematical analysis. What aspects would you like to delve deeper into?";
+    }
+    
+    // Adaptive responses based on mathematical properties
     const responses = [
-      "I understand. Can you tell me more?",
-      "That's interesting. What else would you like to discuss?",
-      "I'm processing that information. How can I help you?",
-      "I see. What would you like to know?",
-      "That makes sense. Is there anything specific I can help with?"
+      "I'm processing the mathematical relationships in your message. Could you elaborate on what interests you most?",
+      "The prime factorization reveals interesting patterns. What specific aspects would you like to explore?",
+      "I'm analyzing the semantic-mathematical bridge in your input. How can I assist you further?",
+      "The mathematical coherence suggests meaningful content. What would you like to focus on?",
+      "I'm translating your input through prime mathematics. What direction shall we take our conversation?"
     ];
     
     return responses[Math.floor(magnitude) % responses.length];
+  }
+
+  /**
+   * PHASE 3: Enhance response with emotional intelligence
+   */
+  private enhanceResponseWithEmotionalIntelligence(
+    response: string,
+    emotionalResponse: any,
+    emotionalContext: any
+  ): string {
+    console.log('❤️ Enhancing response with emotional intelligence...');
+    console.log('Emotional strategy:', emotionalResponse.empathyStrategy);
+    console.log('Support level:', emotionalResponse.supportLevel);
+    console.log('Tonal adjustments:', emotionalResponse.tonalAdjustments);
+    
+    let enhancedResponse = response;
+    
+    // Apply tonal adjustments based on emotional context
+    const { warmth, formality, enthusiasm, patience } = emotionalResponse.tonalAdjustments;
+    
+    // High warmth: Add empathetic phrases
+    if (warmth > 0.7) {
+      if (!enhancedResponse.includes('understand') && !enhancedResponse.includes('feel')) {
+        enhancedResponse = `I understand how you feel. ${enhancedResponse}`;
+      }
+    }
+    
+    // Low formality: Make more casual
+    if (formality < 0.4) {
+      enhancedResponse = enhancedResponse.replace(/\. /g, '! ');
+    }
+    
+    // High enthusiasm: Add excitement
+    if (enthusiasm > 0.7) {
+      if (!enhancedResponse.includes('!')) {
+        enhancedResponse = enhancedResponse.replace(/\.$/, '!');
+      }
+    }
+    
+    // High patience: Add reassuring language
+    if (patience > 0.8) {
+      if (emotionalContext.supportNeeded === 'high') {
+        enhancedResponse += ' Take your time, and let me know if you need anything else.';
+      }
+    }
+    
+    // Apply empathy strategy enhancements
+    switch (emotionalResponse.empathyStrategy) {
+      case 'emotional_validation':
+        if (!enhancedResponse.includes('valid') && !enhancedResponse.includes('understand')) {
+          enhancedResponse = `Your feelings are completely valid. ${enhancedResponse}`;
+        }
+        break;
+        
+      case 'reassurance_and_safety':
+        if (emotionalContext.userEmotion.primary === 'fear' || emotionalContext.userEmotion.primary === 'anxiety') {
+          enhancedResponse += ' You\'re safe here to share whatever you\'re feeling.';
+        }
+        break;
+        
+      case 'gentle_encouragement':
+        if (!enhancedResponse.includes('great') && !enhancedResponse.includes('wonderful')) {
+          enhancedResponse = `You\'re doing great by sharing this. ${enhancedResponse}`;
+        }
+        break;
+    }
+    
+    // Store enhanced response in episodic memory
+    this.episodicMemoryLayer.storeEpisode(
+      'conversation',
+      {
+        summary: `Bot responded: "${enhancedResponse}"`,
+        details: {
+          originalResponse: response,
+          emotionalEnhancements: {
+            strategy: emotionalResponse.empathyStrategy,
+            tonalAdjustments: emotionalResponse.tonalAdjustments
+          }
+        },
+        participants: ['chatbot', 'human'],
+        context: 'response_generation'
+      },
+      emotionalResponse.responseEmotion,
+      0.6 // Moderate importance for bot responses
+    );
+    
+    console.log('❤️ Enhanced response:', enhancedResponse);
+    return enhancedResponse;
   }
 
   getDebugInfo(): any {
@@ -877,7 +1042,11 @@ export class PrimeCore {
       coherence: PrimeMath.calculateCoherence(
         this.humanUser.conversationState.primeFactors,
         this.chatbotUser.conversationState.primeFactors
-      )
+      ),
+      episodicMemory: {
+        totalEpisodes: this.episodicMemoryLayer.getMemoryStats().totalEpisodes,
+        personalityTraits: this.episodicMemoryLayer.getPersonalityInsights().traits
+      }
     };
   }
 }

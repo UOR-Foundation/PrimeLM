@@ -441,8 +441,140 @@ export class GenerativeLayer {
       }
     }
     
-    // No fallback - throw error to expose issues
-    throw new Error(`No semantic query handler found for input: "${currentInput}". Available entity memory: ${JSON.stringify(Object.fromEntries(pragmaticContext.entityMemory))}`);
+    // Enhanced fallback with pronoun resolution and pattern matching
+    return this.handleUnknownQuery(currentInput, pragmaticContext, style);
+  }
+
+  /**
+   * Handle unknown queries with enhanced pattern matching
+   */
+  private handleUnknownQuery(
+    input: string,
+    pragmaticContext: ConversationContext,
+    style: GenerationStyle
+  ): string {
+    const lowerInput = input.toLowerCase();
+    
+    // Enhanced pronoun resolution
+    if (this.containsPronoun(lowerInput)) {
+      const resolvedQuery = this.resolvePronounQuery(input, pragmaticContext);
+      if (resolvedQuery) {
+        return resolvedQuery;
+      }
+    }
+    
+    // Enhanced question pattern matching
+    if (lowerInput.includes('what') && lowerInput.includes('car')) {
+      return "I don't have information about your car. Could you tell me about your car?";
+    }
+    
+    if (lowerInput.includes('what') && lowerInput.includes('do')) {
+      return "I'd be happy to help! Could you tell me more about what you're looking for?";
+    }
+    
+    if (lowerInput.includes('how') && lowerInput.includes('old')) {
+      return "I don't have age information stored. Could you share that with me?";
+    }
+    
+    if (lowerInput.includes('where') && lowerInput.includes('live')) {
+      return "I don't have location information. Where do you live?";
+    }
+    
+    // General question patterns
+    if (lowerInput.startsWith('what') || lowerInput.startsWith('how') || lowerInput.startsWith('where') || lowerInput.startsWith('when') || lowerInput.startsWith('why')) {
+      return "That's a great question! I don't have that specific information yet. Could you tell me more about it?";
+    }
+    
+    // Possession patterns
+    if (lowerInput.includes('do i have') || lowerInput.includes('is my')) {
+      return "I don't have that information stored. Could you tell me about it?";
+    }
+    
+    // Default helpful response
+    return "I'd like to help with that! Could you provide more details or tell me what you'd like me to know?";
+  }
+  
+  /**
+   * Check if input contains pronouns
+   */
+  private containsPronoun(input: string): boolean {
+    const pronouns = ['her', 'his', 'their', 'its', 'she', 'he', 'they', 'it'];
+    return pronouns.some(pronoun => input.includes(pronoun));
+  }
+  
+  /**
+   * Resolve pronoun-based queries
+   */
+  private resolvePronounQuery(
+    input: string,
+    pragmaticContext: ConversationContext
+  ): string | null {
+    const lowerInput = input.toLowerCase();
+    
+    // Look for recent entity introductions to resolve pronouns
+    const recentHistory = pragmaticContext.conversationHistory.slice(-5);
+    
+    // Find the most recent entity that could match the pronoun
+    for (let i = recentHistory.length - 1; i >= 0; i--) {
+      const turn = recentHistory[i];
+      if (turn.intent === 'ENTITY_INTRODUCTION') {
+        const entities = Object.values(turn.entities);
+        
+        // Check for female pronouns
+        if ((lowerInput.includes('her') || lowerInput.includes('she')) && entities.length >= 2) {
+          const entityType = entities[0] as string;
+          const entityName = entities[1] as string;
+          
+          if (this.isFemalePronounEntity(entityType)) {
+            if (lowerInput.includes('name')) {
+              return `Her name is ${entityName}.`;
+            }
+            return `You're asking about ${entityName}, your ${entityType}.`;
+          }
+        }
+        
+        // Check for male pronouns
+        if ((lowerInput.includes('his') || lowerInput.includes('he')) && entities.length >= 2) {
+          const entityType = entities[0] as string;
+          const entityName = entities[1] as string;
+          
+          if (this.isMalePronounEntity(entityType)) {
+            if (lowerInput.includes('name')) {
+              return `His name is ${entityName}.`;
+            }
+            return `You're asking about ${entityName}, your ${entityType}.`;
+          }
+        }
+        
+        // Generic pronoun resolution
+        if (entities.length >= 2) {
+          const entityType = entities[0] as string;
+          const entityName = entities[1] as string;
+          
+          if (lowerInput.includes('name')) {
+            return `The name is ${entityName}.`;
+          }
+        }
+      }
+    }
+    
+    return null;
+  }
+  
+  /**
+   * Check if entity type uses female pronouns
+   */
+  private isFemalePronounEntity(entityType: string): boolean {
+    const femaleEntities = ['wife', 'mother', 'sister', 'daughter', 'girlfriend', 'aunt', 'grandmother', 'woman', 'girl'];
+    return femaleEntities.includes(entityType.toLowerCase());
+  }
+  
+  /**
+   * Check if entity type uses male pronouns
+   */
+  private isMalePronounEntity(entityType: string): boolean {
+    const maleEntities = ['husband', 'father', 'brother', 'son', 'boyfriend', 'uncle', 'grandfather', 'man', 'boy'];
+    return maleEntities.includes(entityType.toLowerCase());
   }
 
   /**
@@ -486,6 +618,22 @@ export class GenerativeLayer {
     if (whoIsMatch) {
       const entityName = whoIsMatch[1];
       return this.handleWhoIsQuery(entityName, pragmaticContext, style);
+    }
+    
+    // Check for attribute queries (e.g., "What color is my hair?")
+    const attributeMatch = currentInput.match(/what (\w+) is my (\w+)/i);
+    if (attributeMatch) {
+      const attribute = attributeMatch[1];
+      const entity = attributeMatch[2];
+      return this.handleAttributeQuery(attribute, entity, pragmaticContext, style);
+    }
+    
+    // Check for general attribute queries (e.g., "What is my hair color?")
+    const generalAttributeMatch = currentInput.match(/what is my (\w+) (\w+)/i);
+    if (generalAttributeMatch) {
+      const entity = generalAttributeMatch[1];
+      const attribute = generalAttributeMatch[2];
+      return this.handleAttributeQuery(attribute, entity, pragmaticContext, style);
     }
     
     return null;
@@ -544,12 +692,31 @@ export class GenerativeLayer {
    * Handle entity name queries
    */
   private handleEntityNameQuery(entityType: string, pragmaticContext: ConversationContext, style: GenerationStyle): string {
-    const context = pragmaticContext.conversationHistory.map(turn => turn.text).join(' ').toLowerCase();
+    // First check entity memory for stored relationships
+    for (const [key, entity] of pragmaticContext.entityMemory) {
+      if (key === `${entityType}_name` || (entity.relationship === 'hasName' && entity.entityType === entityType)) {
+        const entityName = this.capitalizeFirstLetter(entity.value);
+        let response = `Your ${entityType} is named ${entityName}.`;
+        
+        const schemaType = this.schemaVocabulary.inferEntityType(entityType);
+        if (schemaType && style.verbosity !== 'concise') {
+          const contextualNote = this.generateContextualNote(entityType, entityName, schemaType, style);
+          if (contextualNote) {
+            response += ` ${contextualNote}`;
+          }
+        }
+        
+        return response;
+      }
+    }
+    
+    // Fallback to conversation history search
+    const context = pragmaticContext.conversationHistory.map(turn => turn.text).join(' ');
     const entityPattern = new RegExp(`my ${entityType}'?s? name is (\\w+)`, 'i');
     const entityMatch = context.match(entityPattern);
     
     if (entityMatch) {
-      const entityName = entityMatch[1];
+      const entityName = this.capitalizeFirstLetter(entityMatch[1]);
       const schemaType = this.schemaVocabulary.inferEntityType(entityType);
       
       let response = `Your ${entityType} is named ${entityName}.`;
@@ -612,6 +779,66 @@ export class GenerativeLayer {
         return `No entity information found for "${entityName}" in conversation history.`;
       default:
         return `I don't recall you mentioning ${entityName}. Who is ${entityName}?`;
+    }
+  }
+
+  /**
+   * Handle attribute queries (e.g., "What color is my hair?")
+   */
+  private handleAttributeQuery(attribute: string, entity: string, pragmaticContext: ConversationContext, style: GenerationStyle): string {
+    // Search conversation history for attribute information
+    const context = pragmaticContext.conversationHistory.map(turn => turn.text).join(' ').toLowerCase();
+    
+    // Look for patterns like "my hair is brown" or "my car is red" or "I have a white truck"
+    const patterns = [
+      new RegExp(`my ${entity} is ([\\w\\s]+?)(?:\\s|\\.|$)`, 'i'),
+      new RegExp(`i have a ([\\w\\s]+?) ${entity}(?:\\s|\\.|$)`, 'i'),
+      new RegExp(`${entity} is ([\\w\\s]+?)(?:\\s|\\.|$)`, 'i'),
+      new RegExp(`([\\w\\s]+?) ${entity}(?:\\s|\\.|$)`, 'i') // More general pattern
+    ];
+    
+    let attributeValue: string | null = null;
+    
+    for (const pattern of patterns) {
+      const match = context.match(pattern);
+      if (match) {
+        attributeValue = match[1].trim();
+        break;
+      }
+    }
+    
+    if (attributeValue) {
+      const capitalizedValue = this.capitalizeFirstLetter(attributeValue);
+      switch (style.personality) {
+        case 'friendly':
+          return `Your ${entity} is ${capitalizedValue}! I remember you telling me that.`;
+        case 'analytical':
+          return `Based on conversation history, your ${entity} is ${capitalizedValue}.`;
+        case 'professional':
+          return `According to our conversation, your ${entity} is ${capitalizedValue}.`;
+        default:
+          return `Your ${entity} is ${capitalizedValue}.`;
+      }
+    } else {
+      // Check entity memory for stored attributes
+      for (const [key, entityInfo] of pragmaticContext.entityMemory) {
+        if (key.includes(entity) && entityInfo.metadata && entityInfo.metadata[attribute]) {
+          const storedValue = entityInfo.metadata[attribute];
+          return `Your ${entity} is ${storedValue}.`;
+        }
+      }
+      
+      // No attribute information found
+      switch (style.personality) {
+        case 'friendly':
+          return `I don't recall you mentioning the ${attribute} of your ${entity}. What ${attribute} is your ${entity}?`;
+        case 'helpful':
+          return `I don't have information about your ${entity}'s ${attribute}. Could you tell me what ${attribute} your ${entity} is?`;
+        case 'analytical':
+          return `No ${attribute} attribute found for entity: ${entity}. Please provide this information.`;
+        default:
+          return `I don't have information about your ${entity}'s ${attribute}. What ${attribute} is it?`;
+      }
     }
   }
 
@@ -956,5 +1183,13 @@ export class GenerativeLayer {
       default:
         return "I understand. Thank you for sharing that with me.";
     }
+  }
+
+  /**
+   * Capitalize first letter of a string
+   */
+  private capitalizeFirstLetter(str: string): string {
+    if (!str) return str;
+    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
   }
 }

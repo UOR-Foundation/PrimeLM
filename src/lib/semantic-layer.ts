@@ -122,7 +122,13 @@ export class SemanticLayer {
         semanticBoosts: ['greeting', 'time', 'polite', 'social', 'welcome'],
       },
 
-      // Question patterns
+      // Question patterns - specific patterns first
+      {
+        pattern: /^what\s+is\s+my\s+name/i,
+        intent: 'IDENTITY_QUERY',
+        semanticBoosts: ['name', 'identity', 'remember', 'recall', 'called', 'known'],
+        responseTemplate: 'Based on our conversation, your name is {name}.'
+      },
       {
         pattern: /^what (is|are|was|were)/i,
         intent: 'INFORMATION_REQUEST',
