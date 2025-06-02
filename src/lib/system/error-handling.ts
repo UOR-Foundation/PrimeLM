@@ -400,7 +400,9 @@ export class GracefulErrorHandler {
       e => Date.now() - e.timestamp < 5 * 60 * 1000 // Last 5 minutes
     ).length;
     
-    const errorRate = this.stats.totalErrors / Math.max(Date.now() / 60000, 1); // Errors per minute
+    // Calculate error rate based on recent activity, not total time
+    const timeWindow = 5 * 60 * 1000; // 5 minutes
+    const errorRate = recentErrors / (timeWindow / 60000); // Errors per minute in recent window
     const recoveryRate = this.stats.recoverySuccessRate;
     
     let status: 'healthy' | 'degraded' | 'critical' = 'healthy';

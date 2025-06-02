@@ -2,7 +2,7 @@
 // EMOTIONAL INTELLIGENCE LAYER - Emotion Detection, Empathy, Social Awareness
 // =============================================================================
 
-import { globalConfig } from './config';
+import { globalConfig } from '../system/config';
 
 export interface EmotionalState {
   primary: string;
@@ -174,7 +174,8 @@ export class EmotionalIntelligenceLayer {
       { pattern: /(embarrassed|ashamed|humiliated)/i, emotion: 'shame', confidence: 0.7 },
       { pattern: /(lonely|isolated|alone)/i, emotion: 'loneliness', confidence: 0.8 },
       { pattern: /(hopeful|optimistic|positive)/i, emotion: 'hope', confidence: 0.7 },
-      { pattern: /(hopeless|pessimistic|despair)/i, emotion: 'despair', confidence: 0.8 }
+      { pattern: /(hopeless|pessimistic|despair)/i, emotion: 'despair', confidence: 0.8 },
+      { pattern: /(devastated|destroyed|crushed)/i, emotion: 'devastated', confidence: 0.9 }
     ];
 
     emotionPatterns.forEach(({ pattern, emotion, confidence }) => {
@@ -197,9 +198,24 @@ export class EmotionalIntelligenceLayer {
       current.confidence > prev.confidence ? current : prev
     );
 
-    // Get base emotional state
-    const baseState = this.emotionLexicon.get(strongestEmotion.emotion) || 
-                     this.createEmotionalState(strongestEmotion.emotion, 0.0, 0.5, 0.5, 0.5, strongestEmotion.confidence);
+    // Get base emotional state or create one with appropriate valence
+    let baseState = this.emotionLexicon.get(strongestEmotion.emotion);
+    
+    if (!baseState) {
+      // Create emotional state with appropriate valence based on emotion type
+      const valence = this.getEmotionValence(strongestEmotion.emotion);
+      const arousal = this.getEmotionArousal(strongestEmotion.emotion);
+      const dominance = this.getEmotionDominance(strongestEmotion.emotion);
+      
+      baseState = this.createEmotionalState(
+        strongestEmotion.emotion, 
+        valence, 
+        arousal, 
+        dominance, 
+        0.5, 
+        strongestEmotion.confidence
+      );
+    }
 
     // Adjust intensity based on text features
     const intensity = this.calculateEmotionalIntensity(text, baseState);
@@ -329,7 +345,7 @@ export class EmotionalIntelligenceLayer {
     const socialCues = this.detectSocialCues(text);
 
     // Determine mood based on emotion and social cues
-    if (emotionalState.valence > 0.5) {
+    if (emotionalState.valence > 0.3) {
       if (socialCues.includes('sharing')) return 'open_sharing';
       if (socialCues.includes('confident')) return 'positive_confident';
       return 'positive';
@@ -338,6 +354,7 @@ export class EmotionalIntelligenceLayer {
       if (socialCues.includes('urgent')) return 'distressed';
       return 'negative';
     } else {
+      if (emotionalState.primary === 'curiosity') return 'exploratory';
       if (socialCues.includes('uncertain')) return 'exploratory';
       if (socialCues.includes('polite')) return 'formal';
       return 'neutral';
@@ -387,21 +404,28 @@ export class EmotionalIntelligenceLayer {
     let supportScore = 0;
 
     // Emotional factors
-    if (userEmotion.valence < -0.5) supportScore += 2;
+    if (userEmotion.valence < -0.6) supportScore += 3;
+    else if (userEmotion.valence < -0.3) supportScore += 2;
     else if (userEmotion.valence < 0) supportScore += 1;
 
     if (userEmotion.intensity > 0.7) supportScore += 1;
 
     // Social cue factors
     if (socialCues.includes('support_seeking')) supportScore += 2;
-    if (socialCues.includes('urgent')) supportScore += 1;
+    if (socialCues.includes('urgent')) supportScore += 2;
     if (socialCues.includes('uncertain')) supportScore += 1;
 
     // Vulnerable emotion factors
     const vulnerableEmotions = ['sadness', 'fear', 'shame', 'loneliness', 'despair'];
     if (vulnerableEmotions.includes(userEmotion.primary)) supportScore += 2;
 
-    if (supportScore >= 4) return 'high';
+    // Specific high-intensity negative emotions
+    const devastatingEmotions = ['devastated', 'despair', 'hopeless'];
+    if (devastatingEmotions.some(emotion => userEmotion.primary.includes(emotion))) {
+      supportScore += 3;
+    }
+
+    if (supportScore >= 5) return 'high';
     if (supportScore >= 2) return 'medium';
     return 'low';
   }
@@ -849,5 +873,41 @@ export class EmotionalIntelligenceLayer {
     return this.conversationMoodHistory.slice(-5).map(emotion => 
       this.createEmotionalState(emotion, 0, 0.5, 0.5, 0.5, 0.7)
     );
+  }
+
+  /**
+   * Get valence for emotion type
+   */
+  private getEmotionValence(emotion: string): number {
+    const positiveEmotions = ['joy', 'happiness', 'excitement', 'gratitude', 'love', 'pride', 'hope'];
+    const negativeEmotions = ['sadness', 'anger', 'fear', 'shame', 'loneliness', 'despair', 'devastated', 'hate'];
+    
+    if (positiveEmotions.includes(emotion)) return 0.7;
+    if (negativeEmotions.includes(emotion)) return -0.6;
+    return 0.0; // neutral
+  }
+
+  /**
+   * Get arousal for emotion type
+   */
+  private getEmotionArousal(emotion: string): number {
+    const highArousalEmotions = ['excitement', 'anger', 'fear', 'surprise'];
+    const lowArousalEmotions = ['sadness', 'calm', 'loneliness'];
+    
+    if (highArousalEmotions.includes(emotion)) return 0.8;
+    if (lowArousalEmotions.includes(emotion)) return 0.3;
+    return 0.5; // moderate
+  }
+
+  /**
+   * Get dominance for emotion type
+   */
+  private getEmotionDominance(emotion: string): number {
+    const highDominanceEmotions = ['anger', 'pride', 'excitement'];
+    const lowDominanceEmotions = ['fear', 'shame', 'sadness', 'loneliness'];
+    
+    if (highDominanceEmotions.includes(emotion)) return 0.7;
+    if (lowDominanceEmotions.includes(emotion)) return 0.3;
+    return 0.5; // moderate
   }
 }

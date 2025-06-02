@@ -2,7 +2,7 @@
 // GENERATIVE LAYER - Dynamic Natural Language Generation
 // =============================================================================
 
-import { SchemaVocabulary } from './schema-vocabulary';
+import { SchemaVocabulary } from '../semantic/schema-vocabulary';
 import { ConversationContext } from './pragmatic-layer';
 
 export interface GenerationContext {

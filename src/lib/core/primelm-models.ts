@@ -1,16 +1,16 @@
 import { pipeline, Pipeline } from '@xenova/transformers';
-import { KnowledgeBootstrap, KnowledgeBase } from './knowledge-bootstrap';
+import { KnowledgeBootstrap, KnowledgeBase } from '../semantic/knowledge-bootstrap';
 import { PrimeResonanceEngine, PrimeResonanceResult } from './prime-resonance';
 import { PrimeMath } from './prime-math';
-import { SemanticLayer, SemanticContext } from './semantic-layer';
-import { PragmaticLayer, ConversationContext } from './pragmatic-layer';
-import { SchemaVocabulary } from './schema-vocabulary';
-import { DiscourseLayer } from './discourse-layer';
-import { GenerativeLayer, GenerationContext } from './generative-layer';
-import { ConversationStateManager, ConversationTurn } from './conversation-state';
-import { GracefulErrorHandler, createErrorContext, safeAsync } from './error-handling';
-import { EpisodicMemoryLayer } from './episodic-memory';
-import { EmotionalIntelligenceLayer } from './emotional-intelligence';
+import { SemanticLayer, SemanticContext } from '../semantic/semantic-layer';
+import { PragmaticLayer, ConversationContext } from '../conversation/pragmatic-layer';
+import { SchemaVocabulary } from '../semantic/schema-vocabulary';
+import { DiscourseLayer } from '../conversation/discourse-layer';
+import { GenerativeLayer, GenerationContext } from '../conversation/generative-layer';
+import { ConversationStateManager, ConversationTurn } from '../conversation/conversation-state';
+import { GracefulErrorHandler, createErrorContext, safeAsync } from '../system/error-handling';
+import { EpisodicMemoryLayer } from '../memory/episodic-memory';
+import { EmotionalIntelligenceLayer } from '../memory/emotional-intelligence';
 
 // =============================================================================
 // CORE MODEL INTERFACES

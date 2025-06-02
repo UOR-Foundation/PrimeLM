@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { PrimeCore } from '../lib/primelm-models';
+import { PrimeCore } from '../lib/core/primelm-models';
 
 interface Message {
   id: string;

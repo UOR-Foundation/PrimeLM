@@ -2,7 +2,7 @@
 // UNIFIED CONVERSATION STATE MANAGER
 // =============================================================================
 
-import { UnifiedEntityMemory, EntityInfo } from './entity-memory';
+import { UnifiedEntityMemory, EntityInfo } from '../memory/entity-memory';
 
 export interface ConversationTurn {
   id: string;

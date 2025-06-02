@@ -2,7 +2,7 @@
 // EPISODIC MEMORY LAYER - Long-term Memory, Personalization, Learning
 // =============================================================================
 
-import { globalConfig } from './config';
+import { globalConfig } from '../system/config';
 
 export interface Episode {
   id: string;
@@ -267,6 +267,11 @@ export class EpisodicMemoryLayer {
    * Get memory clusters for thematic understanding
    */
   getMemoryClusters(): MemoryCluster[] {
+    // Update clusters if they're empty or stale
+    if (this.clusters.size === 0 || this.episodes.size > 0) {
+      this.updateClusters();
+    }
+    
     return Array.from(this.clusters.values())
       .sort((a, b) => b.strength - a.strength);
   }
@@ -675,6 +680,11 @@ export class EpisodicMemoryLayer {
    * Start memory consolidation timer
    */
   private startMemoryConsolidation(): void {
+    // Skip timer setup during tests to prevent Jest timeout issues
+    if (typeof process !== 'undefined' && process.env.NODE_ENV === 'test') {
+      return;
+    }
+    
     const config = globalConfig.getSection('conversation');
     const consolidationInterval = config?.cleanupInterval || 30 * 60 * 1000; // 30 minutes
     
