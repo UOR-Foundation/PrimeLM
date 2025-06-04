@@ -132,9 +132,91 @@ export class PragmaticLayer {
   }
 
   /**
-   * Handle special entity relationship patterns
+   * Handle special entity relationship patterns using model-extracted entities
    */
   private handleSpecialEntityPatterns(entities: Record<string, any>): void {
+    console.log('🔍 Processing model-extracted entities:', entities);
+    
+    // Convert model entities to text values for pattern analysis
+    const entityTexts: string[] = [];
+    const entityObjects: any[] = [];
+    
+    Object.values(entities).forEach(entity => {
+      if (entity && typeof entity === 'object' && entity.text) {
+        entityTexts.push(entity.text);
+        entityObjects.push(entity);
+      } else if (typeof entity === 'string') {
+        entityTexts.push(entity);
+        entityObjects.push({ text: entity, type: 'UNKNOWN' });
+      }
+    });
+    
+    console.log('📝 Extracted entity texts:', entityTexts);
+    
+    // Handle "My name is X" patterns (2 entities: "name", "Alex")
+    if (entityTexts.length === 2) {
+      const [firstEntity, secondEntity] = entityTexts;
+      
+      // Get recent context to understand the relationship
+      const recentContext = this.context.conversationHistory.slice(-1).map(turn => turn.text).join(' ').toLowerCase();
+      
+      // Check for direct user name introduction: "My name is X"
+      if (firstEntity.toLowerCase() === 'my' && recentContext.includes('my name is')) {
+        const name = secondEntity;
+        if (name && name.length > 0 && name[0] && name[0].toUpperCase() === name[0]) {
+          this.context.entityMemory.set('user_name', {
+            value: name,
+            relationship: 'identity',
+            lastMentioned: Date.now(),
+            mentionCount: (this.context.entityMemory.get('user_name')?.mentionCount || 0) + 1
+          });
+          console.log(`👤 Stored user name: ${name}`);
+          return;
+        }
+      }
+      
+      // Check for relationship patterns: "My wife's name is X", "My dog's name is X"
+      if (firstEntity.toLowerCase() === 'my' && recentContext.includes("'s name is")) {
+        // Extract the relationship type from the context
+        // Use model-extracted entities to find relationship type - NO REGEX
+        // Look for relationship words in the recent context
+        const relationshipWords = ['wife', 'husband', 'dog', 'cat', 'car', 'mother', 'father', 'sister', 'brother'];
+        const foundRelationship = relationshipWords.find(word => recentContext.includes(word));
+        if (foundRelationship) {
+          const relationshipType = foundRelationship;
+          const name = secondEntity;
+          if (name && name.length > 0 && name[0] && name[0].toUpperCase() === name[0]) {
+            const relationshipKey = `${relationshipType}_name`;
+            this.context.entityMemory.set(relationshipKey, {
+              value: name,
+              entityType: relationshipType,
+              relationship: 'hasName',
+              lastMentioned: Date.now(),
+              mentionCount: 1
+            });
+            console.log(`🔗 Stored relationship: ${relationshipType} hasName ${name}`);
+            return;
+          }
+        }
+      }
+    }
+    
+    // Handle direct entity type and name patterns from model analysis
+    entityObjects.forEach(entity => {
+      if (entity.type === 'PERSON' && entity.text) {
+        // Check if this person entity is in a name context
+        const recentContext = this.context.conversationHistory.slice(-1).map(turn => turn.text).join(' ').toLowerCase();
+        if (recentContext.includes('name is') || recentContext.includes('am ') || recentContext.includes('called')) {
+          this.context.entityMemory.set('user_name', {
+            value: entity.text,
+            relationship: 'identity',
+            lastMentioned: Date.now(),
+            mentionCount: (this.context.entityMemory.get('user_name')?.mentionCount || 0) + 1
+          });
+          console.log(`👤 Stored PERSON entity as user name: ${entity.text}`);
+        }
+      }
+    });
     // Handle "X's name is Y" patterns
     if (entities.entityType && entities.entityName) {
       const relationshipKey = `${entities.entityType}_name`;
@@ -147,7 +229,7 @@ export class PragmaticLayer {
       };
       
       this.context.entityMemory.set(relationshipKey, relationshipInfo);
-      console.log(`🔗 Stored relationship: ${entities.entityType} hasName ${entities.entityName}`);
+      console.log(`� Stored relationship: ${entities.entityType} hasName ${entities.entityName}`);
     }
 
     // Handle user identity
@@ -165,7 +247,7 @@ export class PragmaticLayer {
     if (entityValues.length === 1 && typeof entityValues[0] === 'string') {
       // Single entity that could be a name
       const entityValue = entityValues[0] as string;
-      if (entityValue.length > 1 && entityValue[0].toUpperCase() === entityValue[0]) {
+      if (entityValue && entityValue.length > 1 && entityValue[0] && entityValue[0].toUpperCase() === entityValue[0]) {
         // Looks like a proper name (capitalized)
         this.context.entityMemory.set('user_name', {
           value: entityValue,
@@ -180,7 +262,7 @@ export class PragmaticLayer {
     // Handle "My X's name is Y" patterns
     if (entityValues.length === 2) {
       const [entityType, entityName] = entityValues as [string, string];
-      if (entityType && entityName && entityName[0].toUpperCase() === entityName[0]) {
+      if (entityType && entityName && entityName.length > 0 && entityName[0] && entityName[0].toUpperCase() === entityName[0]) {
         const relationshipKey = `${entityType}_name`;
         const relationshipInfo = {
           value: entityName,
@@ -198,7 +280,7 @@ export class PragmaticLayer {
     // Handle pronoun references like "Her name is X"
     if (entityValues.length === 3) {
       const [pronoun, nameWord, name] = entityValues as [string, string, string];
-      if ((pronoun === 'her' || pronoun === 'his') && nameWord === 'name' && name[0].toUpperCase() === name[0]) {
+      if ((pronoun === 'her' || pronoun === 'his') && nameWord === 'name' && name && name.length > 0 && name[0] && name[0].toUpperCase() === name[0]) {
         // Look for the most recent entity that could be referenced by this pronoun
         const recentEntityType = this.findRecentEntityForPronoun(pronoun);
         if (recentEntityType) {

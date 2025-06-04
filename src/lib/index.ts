@@ -16,3 +16,34 @@ export * from './memory';
 
 // System Infrastructure
 export * from './system';
+
+// Model Infrastructure (explicit exports to avoid naming conflicts)
+export {
+  // Interfaces
+  type PrimeLMModel,
+  type EmbeddingsModel as ModelEmbeddingsInterface,
+  type IntentModel,
+  type EntityModel,
+  type EmotionModel,
+  type TopicModel,
+  // Error types
+  ModelInitializationError,
+  ModelProcessingError,
+  InvalidInputError,
+  ModelNotFoundError,
+  // Registry
+  ModelRegistry,
+  modelRegistry,
+  // Base classes
+  BasePrimeLMModel,
+  BaseEmbeddingsModel,
+  BaseIntentModel,
+  BaseEntityModel,
+  BaseEmotionModel,
+  // Factory
+  ModelFactory,
+  MockModelCreators
+} from './models';
+
+// Configuration
+export * from './config/model-config';

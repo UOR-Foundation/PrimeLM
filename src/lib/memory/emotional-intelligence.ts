@@ -145,7 +145,7 @@ export class EmotionalIntelligenceLayer {
    */
   private detectEmotion(text: string): EmotionalState {
     const lowerText = text.toLowerCase();
-    let detectedEmotions: Array<{ emotion: string; confidence: number }> = [];
+    const detectedEmotions: Array<{ emotion: string; confidence: number }> = [];
 
     // Check emotion lexicon
     for (const [emotionWord, emotionState] of this.emotionLexicon) {

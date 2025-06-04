@@ -68,7 +68,7 @@ export class GenerativeLayer {
    * Determine generation style based on context
    */
   private determineGenerationStyle(context: GenerationContext): GenerationStyle {
-    let style = { ...this.defaultStyle };
+    const style = { ...this.defaultStyle };
     
     // Adjust formality based on conversation phase
     switch (context.discourseContext?.conversationPhase) {
@@ -271,7 +271,7 @@ export class GenerativeLayer {
       const entityName = entities[1];
       const schemaType = this.schemaVocabulary.inferEntityType(entityType);
       
-      let core = this.generateEntityAcknowledgment(entityType, entityName, schemaType, style);
+      const core = this.generateEntityAcknowledgment(entityType, entityName, schemaType, style);
       return core;
     } else if (entities.length === 1) {
       // Single entity (e.g., "My name is Alex")
@@ -631,52 +631,64 @@ export class GenerativeLayer {
       return this.handleNameQuery(pragmaticContext, style);
     }
     
-    // Check for entity name queries
-    const entityNameMatch = currentInput.match(/what is my (\w+)'?s? name/i);
-    if (entityNameMatch) {
-      const entityType = entityNameMatch[1];
-      return this.handleEntityNameQuery(entityType, pragmaticContext, style);
+    // Check for entity name queries using simple string operations - NO REGEX
+    if (currentInput.toLowerCase().includes('what is my') && currentInput.toLowerCase().includes('name')) {
+      // Extract entity type from the question using simple string operations
+      const words = currentInput.toLowerCase().split(' ');
+      const myIndex = words.indexOf('my');
+      if (myIndex !== -1 && myIndex + 1 < words.length) {
+        const potentialEntity = words[myIndex + 1].replace(/[^a-z]/g, ''); // Remove punctuation
+        if (potentialEntity && potentialEntity !== 'name') {
+          return this.handleEntityNameQuery(potentialEntity, pragmaticContext, style);
+        }
+      }
     }
     
-    // Check for entity name queries with apostrophe
-    const entityNameMatch2 = currentInput.match(/what is my (\w+)'s name/i);
-    if (entityNameMatch2) {
-      const entityType = entityNameMatch2[1];
-      return this.handleEntityNameQuery(entityType, pragmaticContext, style);
+    // Check for "Who is X?" queries using simple string operations - NO REGEX
+    if (currentInput.toLowerCase().startsWith('who is ')) {
+      const entityName = currentInput.substring(7).trim().replace(/[^a-zA-Z]/g, '');
+      if (entityName) {
+        return this.handleWhoIsQuery(entityName, pragmaticContext, style);
+      }
     }
     
-    // Check for "Who is X?" queries
-    const whoIsMatch = currentInput.match(/who is (\w+)/i);
-    if (whoIsMatch) {
-      const entityName = whoIsMatch[1];
-      return this.handleWhoIsQuery(entityName, pragmaticContext, style);
+    // Check for "favorite" queries using simple string operations - NO REGEX
+    if (currentInput.toLowerCase().includes('what is my favorite')) {
+      const words = currentInput.toLowerCase().split(' ');
+      const favoriteIndex = words.indexOf('favorite');
+      if (favoriteIndex !== -1 && favoriteIndex + 1 < words.length) {
+        const entity = words[favoriteIndex + 1].replace(/[^a-z]/g, '');
+        if (entity) {
+          return this.handleFavoriteQuery(entity, pragmaticContext, style);
+        }
+      }
     }
     
-    // Check for "favorite" queries FIRST (e.g., "What is my favorite color?")
-    const favoriteMatch = currentInput.match(/what is my favorite (\w+)/i);
-    console.log('🔍 Favorite regex result:', favoriteMatch);
-    if (favoriteMatch) {
-      const entity = favoriteMatch[1];
-      console.log('🔍 Matched favorite query for entity:', entity);
-      return this.handleFavoriteQuery(entity, pragmaticContext, style);
-    }
-    
-    // Check for attribute queries (e.g., "What color is my hair?")
-    const attributeMatch = currentInput.match(/what (\w+) is my (\w+)/i);
-    if (attributeMatch) {
-      const attribute = attributeMatch[1];
-      const entity = attributeMatch[2];
-      return this.handleAttributeQuery(attribute, entity, pragmaticContext, style);
-    }
-    
-    // Check for general attribute queries (e.g., "What is my hair color?")
-    const generalAttributeMatch = currentInput.match(/what is my (\w+) (\w+)/i);
-    console.log('🔍 General attribute regex result:', generalAttributeMatch);
-    if (generalAttributeMatch) {
-      const entity = generalAttributeMatch[1];
-      const attribute = generalAttributeMatch[2];
-      console.log('🔍 Matched general attribute query - entity:', entity, 'attribute:', attribute);
-      return this.handleAttributeQuery(attribute, entity, pragmaticContext, style);
+    // Check for attribute queries using simple string operations - NO REGEX
+    if (currentInput.toLowerCase().includes('what') && currentInput.toLowerCase().includes('is my')) {
+      const words = currentInput.toLowerCase().split(' ');
+      const whatIndex = words.indexOf('what');
+      const myIndex = words.indexOf('my');
+      
+      if (whatIndex !== -1 && myIndex !== -1 && whatIndex < myIndex) {
+        // Pattern: "what [attribute] is my [entity]"
+        if (whatIndex + 1 < myIndex && myIndex + 1 < words.length) {
+          const attribute = words[whatIndex + 1].replace(/[^a-z]/g, '');
+          const entity = words[myIndex + 1].replace(/[^a-z]/g, '');
+          if (attribute && entity && attribute !== 'is') {
+            return this.handleAttributeQuery(attribute, entity, pragmaticContext, style);
+          }
+        }
+        
+        // Pattern: "what is my [entity] [attribute]"
+        if (myIndex + 2 < words.length) {
+          const entity = words[myIndex + 1].replace(/[^a-z]/g, '');
+          const attribute = words[myIndex + 2].replace(/[^a-z]/g, '');
+          if (entity && attribute) {
+            return this.handleAttributeQuery(attribute, entity, pragmaticContext, style);
+          }
+        }
+      }
     }
     
     return null;
@@ -721,10 +733,23 @@ export class GenerativeLayer {
     
     // Fallback to conversation history search if not in entity memory
     const context = pragmaticContext.conversationHistory.map(turn => turn.text).join(' ');
-    const nameMatch = context.match(/my name is (\w+)/i);
+    // Use model-extracted entities instead of regex - NO REGEX PATTERNS
+    const hasNameIntroduction = context.toLowerCase().includes('my name is');
+    let nameEntity: string | null = null;
     
-    if (nameMatch) {
-      const name = this.capitalizeFirstLetter(nameMatch[1]);
+    if (hasNameIntroduction) {
+      // Extract name from context using simple string operations - NO REGEX
+      const words = context.toLowerCase().split(' ');
+      const nameIsIndex = words.findIndex((word, i) => 
+        i < words.length - 1 && word === 'name' && words[i + 1] === 'is'
+      );
+      if (nameIsIndex !== -1 && nameIsIndex + 2 < words.length) {
+        nameEntity = words[nameIsIndex + 2];
+      }
+    }
+    
+    if (nameEntity) {
+      const name = this.capitalizeFirstLetter(nameEntity);
       switch (style.personality) {
         case 'friendly':
           return `Your name is ${name}! I remember you telling me that.`;
@@ -850,20 +875,24 @@ export class GenerativeLayer {
     // Search conversation history for favorite information
     const context = pragmaticContext.conversationHistory.map(turn => turn.text).join(' ').toLowerCase();
     
-    // Look for patterns like "my favorite color is blue" or "I like red"
-    const patterns = [
-      new RegExp(`my favorite ${entity} is ([\w\s]+?)(?:\s|\.|$)`, 'i'),
-      new RegExp(`i like ([\w\s]+?) ${entity}(?:\s|\.|$)`, 'i'),
-      new RegExp(`favorite ${entity} is ([\w\s]+?)(?:\s|\.|$)`, 'i')
+    // Look for favorite patterns using simple string operations - NO REGEX
+    const favoritePatterns = [
+      `my favorite ${entity} is`,
+      `favorite ${entity} is`
     ];
     
     let favoriteValue: string | null = null;
     
-    for (const pattern of patterns) {
-      const match = context.match(pattern);
-      if (match) {
-        favoriteValue = match[1].trim();
-        break;
+    // Check each pattern using simple string operations - NO REGEX
+    for (const pattern of favoritePatterns) {
+      const patternIndex = context.indexOf(pattern);
+      if (patternIndex !== -1) {
+        const afterPattern = context.substring(patternIndex + pattern.length).trim();
+        const words = afterPattern.split(' ');
+        if (words.length > 0) {
+          favoriteValue = words[0].replace(/[^a-zA-Z]/g, ''); // Remove punctuation
+          break;
+        }
       }
     }
     
